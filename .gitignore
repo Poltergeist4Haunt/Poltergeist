@@ -1,0 +1,26 @@
+# ---- macOS / editors
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# ---- secrets and scratch (the .sxcu has an API key in it)
+*.sxcu
+settings-response.txt
+
+# ---- Windows app build output
+WINDOWS/.tools/
+WINDOWS/dist/
+**/bin/
+**/obj/
+.vs/
+*.user
+*.suo
+
+# ---- Mac app build output
+MAC/.build/
+MAC/build/
+*.xcuserstate
+
+# ---- website: the built downloads are big, attach them to a GitHub Release (delete this line to commit them anyway)
+site/downloads/*.zip
