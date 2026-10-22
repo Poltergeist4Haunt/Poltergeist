@@ -27,7 +27,7 @@ All of them can be changed in *Settings → General → Hotkeys*.
 - **Screenshot editor**: arrow, curved arrow, pen, marker, box, circle, text (double-click to edit), blur (pixelated or soft), pasted/dropped pictures, any colour, three sizes, undo/redo, zoom and pan. *Upload* has a ▾ with *Copy to clipboard* and *Save as…*.
 - **Screen recording**: area, window or full screen at 15–60 fps and 2–35 Mbps, desktop audio and/or microphone on **separate tracks**, pause/resume, mute-mic, discard. The little control bar is hidden from the video.
 - **Video editor**: trim, split, cut out clips, speed changes (¼×–4×), mute the desktop or microphone track for any stretch, audio fades, arrows/boxes/circles/text/blur/pictures/GIFs/videos laid over the picture with fade in/out, keyframes to move them over time, zoom-in camera moves, frame stepping (← →, or , .). Export re-encodes only when needed (plain trims are instant).
-- **Settings**: Upload, Gallery, Account, General, Recordings, Effects, Embed, Domain and Stats tabs. Sounds can be Windows' own or any file you pick (capture, success and error sounds). Effects adds rounded corners, a border, a drop shadow and a watermark to screenshots. The gallery shows previews of your recent uploads, and Stats shows how much you use the app.
+- **Settings**: Upload, Gallery, Account, General, Recordings, Effects, Embed, Domain and Stats tabs. Sounds can be Windows' own or any file you pick (capture, success and error sounds). Effects adds rounded corners, a border and a drop shadow to screenshots. The gallery shows previews of your recent uploads, and Stats shows how much you use the app.
 - The API key is stored encrypted for your Windows account (DPAPI). Settings live in `%APPDATA%\Poltergeist`.
 
 ## ffmpeg

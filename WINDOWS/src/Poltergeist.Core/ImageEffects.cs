@@ -2,11 +2,11 @@ using SkiaSharp;
 
 namespace Poltergeist.Core;
 
-/// <summary>Optional touch-ups for a screenshot: rounded corners, a border, a drop shadow and a watermark.</summary>
+/// <summary>Optional touch-ups for a screenshot: rounded corners, a border and a drop shadow.</summary>
 public static class ImageEffects
 {
     public static bool Wanted(AppSettings s) =>
-        s.FxOn && (s.FxRound || s.FxBorder > 0 || s.FxShadow || !string.IsNullOrWhiteSpace(s.FxWatermark));
+        s.FxOn && (s.FxRound || s.FxBorder > 0 || s.FxShadow);
 
     public static SKBitmap Apply(SKBitmap src, AppSettings s)
     {
@@ -33,18 +33,6 @@ public static class ImageEffects
         using (var clip = new SKPath()) { clip.AddRoundRect(rect, radius, radius); c.ClipPath(clip, SKClipOperation.Intersect, true); }
         using (var p = new SKPaint { FilterQuality = SKFilterQuality.High }) c.DrawBitmap(src, rect, p);
 
-        if (!string.IsNullOrWhiteSpace(s.FxWatermark))
-        {
-            float size = Math.Max(12, h / 28f);
-            using var font = new SKFont(SKTypeface.FromFamilyName("Segoe UI", SKFontStyle.Bold) ?? SKTypeface.Default, size);
-            using var text = new SKPaint(font) { IsAntialias = true, Color = new SKColor(255, 255, 255, 215) };
-            using var back = new SKPaint(font) { IsAntialias = true, Color = new SKColor(0, 0, 0, 120), ImageFilter = SKImageFilter.CreateBlur(2, 2) };
-            float tw = text.MeasureText(s.FxWatermark), m = size * .7f;
-            float x = s.FxWatermarkPos.EndsWith("Left") ? rect.Left + m : rect.Right - tw - m;
-            float y = s.FxWatermarkPos.StartsWith("Top") ? rect.Top + m + size : rect.Bottom - m;
-            c.DrawText(s.FxWatermark, x + 1, y + 1.5f, font, back);
-            c.DrawText(s.FxWatermark, x, y, font, text);
-        }
         c.Restore();
 
         if (s.FxBorder > 0)

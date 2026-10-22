@@ -278,19 +278,6 @@ struct EffectsView: View {
             }.toggleStyle(HauntToggleStyle())
 
             Card {
-                Text("Watermark").font(.system(size: 15, weight: .semibold)).foregroundColor(Theme.text)
-                TextField("Leave empty for none", text: $s.fxWatermark).textFieldStyle(HauntFieldStyle())
-                HStack {
-                    Text("Position").font(.system(size: 14, weight: .medium)).foregroundColor(Theme.text)
-                    Spacer()
-                    Picker("", selection: $s.fxWatermarkPos) {
-                        Text("Bottom right").tag("bottomRight"); Text("Bottom left").tag("bottomLeft")
-                        Text("Top right").tag("topRight"); Text("Top left").tag("topLeft")
-                    }.labelsHidden().pickerStyle(.menu).fixedSize()
-                }
-            }
-
-            Card {
                 Text("Preview").font(.system(size: 15, weight: .semibold)).foregroundColor(Theme.text)
                 HStack {
                     Spacer()

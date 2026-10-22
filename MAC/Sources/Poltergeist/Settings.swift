@@ -148,9 +148,6 @@ final class Settings: ObservableObject {
     @Published var fxBorderColor: String { didSet { d.set(fxBorderColor, forKey: "fxBorderColor") } }
     @Published var fxShadow: Bool { didSet { d.set(fxShadow, forKey: "fxShadow") } }
     @Published var fxShadowSize: Int { didSet { d.set(fxShadowSize, forKey: "fxShadowSize") } }
-    @Published var fxWatermark: String { didSet { d.set(fxWatermark, forKey: "fxWatermark") } }
-    /// "bottomRight", "bottomLeft", "topRight" or "topLeft"
-    @Published var fxWatermarkPos: String { didSet { d.set(fxWatermarkPos, forKey: "fxWatermarkPos") } }
 
     // Usage numbers for the Stats page
     @Published var totalSeconds: Double { didSet { d.set(totalSeconds, forKey: "totalSeconds") } }
@@ -230,8 +227,6 @@ final class Settings: ObservableObject {
         fxBorderColor = d.string(forKey: "fxBorderColor") ?? "#f27db3"
         fxShadow = d.object(forKey: "fxShadow") as? Bool ?? false
         fxShadowSize = d.object(forKey: "fxShadowSize") as? Int ?? 18
-        fxWatermark = d.string(forKey: "fxWatermark") ?? ""
-        fxWatermarkPos = d.string(forKey: "fxWatermarkPos") ?? "bottomRight"
         totalSeconds = d.object(forKey: "totalSeconds") as? Double ?? 0
         bytesUploaded = d.object(forKey: "bytesUploaded") as? Int ?? 0
         totalUploads = d.object(forKey: "totalUploads") as? Int ?? 0

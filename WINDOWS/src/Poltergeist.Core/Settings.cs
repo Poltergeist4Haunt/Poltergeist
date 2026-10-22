@@ -103,7 +103,7 @@ public sealed class AppSettings : ObservableObject
     // ---- image effects, applied to every screenshot (like ShareX's image effects)
     bool _fxOn, _fxShadow, _fxRound;
     int _fxRadius = 14, _fxBorder, _fxShadowSize = 18;
-    string _fxBorderColor = "#f27db3", _fxWatermark = "", _fxWatermarkPos = "BottomRight";
+    string _fxBorderColor = "#f27db3";
     public bool FxOn { get => _fxOn; set => Set(ref _fxOn, value); }
     public bool FxRound { get => _fxRound; set => Set(ref _fxRound, value); }
     public int FxRadius { get => _fxRadius; set => Set(ref _fxRadius, value); }
@@ -111,9 +111,6 @@ public sealed class AppSettings : ObservableObject
     public string FxBorderColor { get => _fxBorderColor; set => Set(ref _fxBorderColor, value); }
     public bool FxShadow { get => _fxShadow; set => Set(ref _fxShadow, value); }
     public int FxShadowSize { get => _fxShadowSize; set => Set(ref _fxShadowSize, value); }
-    public string FxWatermark { get => _fxWatermark; set => Set(ref _fxWatermark, value); }
-    /// <summary>TopLeft, TopRight, BottomLeft or BottomRight.</summary>
-    public string FxWatermarkPos { get => _fxWatermarkPos; set => Set(ref _fxWatermarkPos, value); }
 
     // ---- usage numbers for the stats page
     long _totalSeconds, _bytesUploaded;

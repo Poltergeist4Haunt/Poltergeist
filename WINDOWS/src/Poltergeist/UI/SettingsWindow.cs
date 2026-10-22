@@ -920,7 +920,6 @@ sealed class SettingsWindow : ChromeWindow
         }
         Action<Action> change = a => { a(); Refresh(); };
 
-        var positions = new[] { ("Bottom right", "BottomRight"), ("Bottom left", "BottomLeft"), ("Top right", "TopRight"), ("Top left", "TopLeft") };
         var colorBox = Ui.Box(s.FxBorderColor, "#f27db3", v => change(() => s.FxBorderColor = v));
         colorBox.Width = 110;
 
@@ -935,16 +934,12 @@ sealed class SettingsWindow : ChromeWindow
             Ui.Row("Border colour", null, colorBox),
             Ui.Toggle("Drop shadow", "Adds a soft transparent margin around the shot.", s.FxShadow, v => change(() => s.FxShadow = v)),
             SliderRow("Shadow size", null, 6, 50, s.FxShadowSize, v => change(() => s.FxShadowSize = (int)v), " px"));
-        var mark = Theme.CardPanel(
-            Theme.Title("Watermark"),
-            Ui.Field("Text", s.FxWatermark, "Leave empty for none", v => change(() => s.FxWatermark = v)),
-            Ui.Row("Position", null, Ui.Combo(positions, s.FxWatermarkPos, v => change(() => s.FxWatermarkPos = v), 170)));
         var prev = Theme.CardPanel(Theme.Title("Preview"), new Border
         {
             Background = new SolidColorBrush(Color.FromRgb(0x14, 0x14, 0x16)), CornerRadius = new CornerRadius(12), Padding = new Thickness(18), Child = preview,
         });
         Refresh();
-        return Pad(Ui.Page(master, look, mark, prev));
+        return Pad(Ui.Page(master, look, prev));
     }
 
     static SKBitmap SampleShot()

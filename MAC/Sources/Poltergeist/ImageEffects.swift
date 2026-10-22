@@ -1,11 +1,11 @@
 import AppKit
 import SwiftUI
 
-/// Optional touch-ups for a screenshot: rounded corners, a border, a drop shadow and a watermark.
+/// Optional touch-ups for a screenshot: rounded corners, a border and a drop shadow.
 enum ImageEffects {
     static var wanted: Bool {
         let s = Settings.shared
-        return s.fxOn && (s.fxRound || s.fxBorder > 0 || s.fxShadow || !s.fxWatermark.trimmingCharacters(in: .whitespaces).isEmpty)
+        return s.fxOn && (s.fxRound || s.fxBorder > 0 || s.fxShadow)
     }
 
     /// Draws the effects around `image` (pixel size in, pixel size + margin out). Pass `settings` so a preview can use its own.
@@ -35,24 +35,6 @@ enum ImageEffects {
         ctx.clip()
         ctx.draw(image, in: rect)
 
-        let mark = s.fxWatermark.trimmingCharacters(in: .whitespaces)
-        if !mark.isEmpty {
-            let size = max(12, CGFloat(h) / 28)
-            let font = NSFont.systemFont(ofSize: size, weight: .bold)
-            let shadow = NSShadow()
-            shadow.shadowColor = NSColor.black.withAlphaComponent(0.5)
-            shadow.shadowBlurRadius = 2
-            shadow.shadowOffset = NSSize(width: 1, height: -1)
-            let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor.white.withAlphaComponent(0.85), .shadow: shadow]
-            let str = NSAttributedString(string: mark, attributes: attrs)
-            let tw = str.size().width, m = size * 0.7
-            let x = s.fxWatermarkPos.hasSuffix("Left") ? rect.minX + m : rect.maxX - tw - m
-            let y = s.fxWatermarkPos.hasPrefix("top") ? rect.maxY - m - size : rect.minY + m
-            NSGraphicsContext.saveGraphicsState()
-            NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: false)
-            str.draw(at: NSPoint(x: x, y: y))
-            NSGraphicsContext.restoreGraphicsState()
-        }
         ctx.restoreGState()
 
         if s.fxBorder > 0 {

@@ -31,7 +31,7 @@ static class Program
     static void EffectTests()
     {
         Console.WriteLine("Image effects");
-        var cfg = new AppSettings { FxOn = true, FxRound = true, FxRadius = 20, FxBorder = 4, FxShadow = true, FxShadowSize = 10, FxWatermark = "poltergeist" };
+        var cfg = new AppSettings { FxOn = true, FxRound = true, FxRadius = 20, FxBorder = 4, FxShadow = true, FxShadowSize = 10 };
         using var src = new SkiaSharp.SKBitmap(200, 100);
         using (var c = new SkiaSharp.SKCanvas(src)) c.Clear(new SkiaSharp.SKColor(30, 120, 200));
         using var fx = ImageEffects.Apply(src, cfg);
