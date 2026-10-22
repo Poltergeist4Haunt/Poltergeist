@@ -96,6 +96,36 @@ public sealed class AppSettings : ObservableObject
     public bool NotifyOnSuccess { get => _notifyOnSuccess; set => Set(ref _notifyOnSuccess, value); }
     public bool NotifyOnError { get => _notifyOnError; set => Set(ref _notifyOnError, value); }
 
+    string _captureSound = "None";
+    /// <summary>Played when a screenshot is taken. A name from Windows' sounds, "None", or the full path of your own file.</summary>
+    public string CaptureSound { get => _captureSound; set => Set(ref _captureSound, value); }
+
+    // ---- image effects, applied to every screenshot (like ShareX's image effects)
+    bool _fxOn, _fxShadow, _fxRound;
+    int _fxRadius = 14, _fxBorder, _fxShadowSize = 18;
+    string _fxBorderColor = "#f27db3", _fxWatermark = "", _fxWatermarkPos = "BottomRight";
+    public bool FxOn { get => _fxOn; set => Set(ref _fxOn, value); }
+    public bool FxRound { get => _fxRound; set => Set(ref _fxRound, value); }
+    public int FxRadius { get => _fxRadius; set => Set(ref _fxRadius, value); }
+    public int FxBorder { get => _fxBorder; set => Set(ref _fxBorder, value); }
+    public string FxBorderColor { get => _fxBorderColor; set => Set(ref _fxBorderColor, value); }
+    public bool FxShadow { get => _fxShadow; set => Set(ref _fxShadow, value); }
+    public int FxShadowSize { get => _fxShadowSize; set => Set(ref _fxShadowSize, value); }
+    public string FxWatermark { get => _fxWatermark; set => Set(ref _fxWatermark, value); }
+    /// <summary>TopLeft, TopRight, BottomLeft or BottomRight.</summary>
+    public string FxWatermarkPos { get => _fxWatermarkPos; set => Set(ref _fxWatermarkPos, value); }
+
+    // ---- usage numbers for the stats page
+    long _totalSeconds, _bytesUploaded;
+    int _totalUploads, _totalScreenshots, _totalRecordings;
+    DateTime _firstRun = DateTime.Now;
+    public long TotalSeconds { get => _totalSeconds; set => Set(ref _totalSeconds, value); }
+    public long BytesUploaded { get => _bytesUploaded; set => Set(ref _bytesUploaded, value); }
+    public int TotalUploads { get => _totalUploads; set => Set(ref _totalUploads, value); }
+    public int TotalScreenshots { get => _totalScreenshots; set => Set(ref _totalScreenshots, value); }
+    public int TotalRecordings { get => _totalRecordings; set => Set(ref _totalRecordings, value); }
+    public DateTime FirstRun { get => _firstRun; set => Set(ref _firstRun, value); }
+
     // ---- privacy, history
     bool _stripMetadata = true;
     string _historyClear = "never";

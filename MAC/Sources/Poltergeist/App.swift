@@ -54,6 +54,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         NSApp.servicesProvider = self
         UploadManager.shared.onStatus = { [weak self] text in self?.statusItem.button?.title = text }
         installEditMenu()
+        Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { _ in Settings.shared.totalSeconds += 30 }   // for the Stats page
         registerHotKeys()
         NotificationCenter.default.addObserver(forName: .hotkeysChanged, object: nil, queue: .main) { [weak self] _ in
             self?.registerHotKeys()
@@ -219,6 +220,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         Task { @MainActor in
             switch await Capture.run(mode) {
             case .file(let url):
+                let st = Settings.shared
+                st.play(st.captureSound)
+                st.totalScreenshots += 1
+                ImageEffects.applyToFile(url)
                 if edit || Settings.shared.editBeforeUpload {
                     ImageEditor.edit(url) { [weak self] result in
                         switch result {
@@ -276,6 +281,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// A finished recording: optionally edit it (trim, cut, annotate), keep the backup copy if enabled, then upload.
     private func finishRecording(_ temp: URL, forceEdit: Bool = false) {
         let s = Settings.shared
+        s.totalRecordings += 1
         Task { @MainActor in
             let duration = await VideoTrimmer.duration(of: temp)
             // Without the editor the recording still has to go out as ONE audio track (browsers play only the first).
@@ -411,7 +417,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             w.titlebarAppearsTransparent = true
             w.appearance = NSAppearance(named: .darkAqua)
             w.backgroundColor = NSColor(Theme.background)
-            w.setContentSize(NSSize(width: 760, height: 640))
+            w.setContentSize(NSSize(width: 968, height: 720))
             w.minSize = NSSize(width: 640, height: 480)
             w.isReleasedWhenClosed = false
             w.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]

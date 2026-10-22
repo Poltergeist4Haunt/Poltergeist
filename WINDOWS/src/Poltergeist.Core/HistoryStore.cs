@@ -9,12 +9,14 @@ public sealed record HistoryItem(string Url, string Name, DateTime Date);
 public sealed class HistoryStore
 {
     readonly string _file;
+    readonly int _capacity;
     public ObservableCollection<HistoryItem> Items { get; } = new();
     public Action<Action> Post { get; set; } = a => a();
 
-    public HistoryStore(string file)
+    public HistoryStore(string file, int capacity = 20)
     {
         _file = file;
+        _capacity = capacity;
         try
         {
             if (File.Exists(file) && JsonSerializer.Deserialize<List<HistoryItem>>(File.ReadAllText(file)) is { } list)
@@ -28,7 +30,7 @@ public sealed class HistoryStore
         Post(() =>
         {
             Items.Insert(0, new HistoryItem(url, name, DateTime.Now));
-            while (Items.Count > 20) Items.RemoveAt(Items.Count - 1);
+            while (Items.Count > _capacity) Items.RemoveAt(Items.Count - 1);
             Save();
         });
     }

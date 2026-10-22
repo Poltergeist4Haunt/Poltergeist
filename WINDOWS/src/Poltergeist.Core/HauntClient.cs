@@ -7,6 +7,9 @@ namespace Poltergeist.Core;
 
 public sealed record UploadResult(string Url, string? Id, string? FileName);
 
+/// <summary>One file from the user's Haunt image host (as listed by the API).</summary>
+public sealed record RemoteUpload(string Id, string Name, string Url, string? ThumbUrl, long Size, DateTime? Created, bool IsVideo);
+
 /// <summary>An upload problem with a message that is fine to show the user.</summary>
 public sealed class HauntException : Exception
 {
@@ -125,5 +128,88 @@ public sealed class HauntClient
         {
             throw new HauntException("The connection dropped. Check your internet and retry.");
         }
+    }
+
+    /// <summary>
+    /// Lists your own files (GET /api/imagehost/uploads, needs the key's imagehost:read permission). The reply is read leniently:
+    /// a bare array, or an object holding the list under uploads / files / items / data / results.
+    /// </summary>
+    public async Task<List<RemoteUpload>> ListUploadsAsync(string apiKey, int limit, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(apiKey)) throw new HauntException("No API key set. Open Settings → Account.");
+        var uri = new Uri(UploadUri, "uploads?limit=" + limit);
+        using var req = new HttpRequestMessage(HttpMethod.Get, uri);
+        req.Headers.Add("x-api-key", apiKey.Trim());
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        cts.CancelAfter(TimeSpan.FromSeconds(25));
+        string text;
+        System.Net.HttpStatusCode status;
+        try
+        {
+            using var resp = await Http.SendAsync(req, HttpCompletionOption.ResponseContentRead, cts.Token);
+            status = resp.StatusCode;
+            text = await resp.Content.ReadAsStringAsync(cts.Token);
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested) { throw new HauntException("Haunt didn't answer in time."); }
+        catch (HttpRequestException) { throw new HauntException("Couldn't reach Haunt. Check your internet."); }
+
+        if ((int)status == 401 || (int)status == 403)
+            throw new HauntException("Your API key can't read your uploads. Edit the key on the Haunt dashboard and turn on the Read permission for Image Host.");
+        if ((int)status >= 400) throw new HauntException($"Haunt said no (HTTP {(int)status}).");
+
+        JsonElement root;
+        try { root = JsonDocument.Parse(text).RootElement; } catch { throw new HauntException("Haunt returned something unexpected."); }
+        var list = FindList(root) ?? throw new HauntException("Haunt's reply didn't have a list of files.");
+        var result = new List<RemoteUpload>();
+        foreach (var e in list.EnumerateArray())
+        {
+            if (e.ValueKind != JsonValueKind.Object) continue;
+            var url = Str(e, "url", "fileUrl", "link", "rawUrl", "cdnUrl");
+            var name = Str(e, "fileName", "name", "originalName", "filename") ?? "";
+            var id = Str(e, "id", "uploadId", "_id") ?? name;
+            if (string.IsNullOrEmpty(url)) continue;
+            if (string.IsNullOrEmpty(name)) name = id;
+            var thumb = Str(e, "thumbnailUrl", "thumbnail", "thumb", "previewUrl", "preview");
+            var type = Str(e, "type", "mimeType", "mime", "contentType", "kind") ?? "";
+            long size = Num(e, "size", "fileSize", "bytes");
+            DateTime? created = null;
+            var when = Str(e, "createdAt", "uploadedAt", "uploadAt", "date", "created");
+            if (when != null && DateTime.TryParse(when, null, System.Globalization.DateTimeStyles.AdjustToUniversal | System.Globalization.DateTimeStyles.AssumeUniversal, out var d)) created = d.ToLocalTime();
+            bool video = type.StartsWith("video", StringComparison.OrdinalIgnoreCase) || type.Equals("video", StringComparison.OrdinalIgnoreCase)
+                         || new[] { ".mp4", ".webm", ".mov", ".mkv" }.Contains(Path.GetExtension(name).ToLowerInvariant());
+            result.Add(new RemoteUpload(id, name, url!, thumb, size, created, video));
+        }
+        return result;
+    }
+
+    static JsonElement? FindList(JsonElement root)
+    {
+        if (root.ValueKind == JsonValueKind.Array) return root;
+        if (root.ValueKind != JsonValueKind.Object) return null;
+        foreach (var key in new[] { "uploads", "files", "items", "data", "results" })
+            if (root.TryGetProperty(key, out var v))
+            {
+                if (v.ValueKind == JsonValueKind.Array) return v;
+                if (v.ValueKind == JsonValueKind.Object && FindList(v) is { } inner) return inner;
+            }
+        return null;
+    }
+
+    static string? Str(JsonElement e, params string[] names)
+    {
+        foreach (var n in names)
+            if (e.TryGetProperty(n, out var v) && v.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(v.GetString())) return v.GetString();
+        return null;
+    }
+
+    static long Num(JsonElement e, params string[] names)
+    {
+        foreach (var n in names)
+            if (e.TryGetProperty(n, out var v))
+            {
+                if (v.ValueKind == JsonValueKind.Number && v.TryGetInt64(out var l)) return l;
+                if (v.ValueKind == JsonValueKind.String && long.TryParse(v.GetString(), out var p)) return p;
+            }
+        return 0;
     }
 }

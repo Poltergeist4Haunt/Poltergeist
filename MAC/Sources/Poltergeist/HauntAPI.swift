@@ -17,6 +17,17 @@ enum HauntError: LocalizedError {
     }
 }
 
+/// One file on the user's Haunt image host.
+struct RemoteUpload: Identifiable {
+    let id: String
+    let name: String
+    let url: String
+    let thumbURL: String?
+    let size: Int
+    let created: Date?
+    let isVideo: Bool
+}
+
 struct UploadResult {
     let url: String
     let id: String?
@@ -82,6 +93,61 @@ enum HauntAPI {
         }
         guard let url = json?["url"] as? String else { throw HauntError.badResponse }
         return UploadResult(url: url, id: json?["id"] as? String, fileName: json?["fileName"] as? String)
+    }
+
+    /// Your own files (GET /api/imagehost/uploads, needs the key's imagehost:read permission). The reply is read leniently:
+    /// a bare array, or an object holding the list under uploads / files / items / data / results.
+    static func listUploads(limit: Int = 100) async throws -> [RemoteUpload] {
+        let key = Settings.shared.apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !key.isEmpty else { throw HauntError.noKey }
+        var comps = URLComponents(url: uploadURL.deletingLastPathComponent().appendingPathComponent("uploads"), resolvingAgainstBaseURL: false)!
+        comps.queryItems = [URLQueryItem(name: "limit", value: String(limit))]
+        var req = URLRequest(url: comps.url!)
+        req.setValue(key, forHTTPHeaderField: "x-api-key")
+        req.timeoutInterval = 25
+        let data: Data, resp: URLResponse
+        do { (data, resp) = try await URLSession.shared.data(for: req) }
+        catch { throw HauntError.server("Couldn't reach Haunt. Check your internet.") }
+        let status = (resp as? HTTPURLResponse)?.statusCode ?? 0
+        if status == 401 || status == 403 {
+            throw HauntError.server("Your API key can't read your uploads. Edit the key on the Haunt dashboard and turn on the Read permission for Image Host.")
+        }
+        if status >= 400 { throw HauntError.server("Haunt said no (HTTP \(status)).") }
+        guard let root = try? JSONSerialization.jsonObject(with: data), let list = findList(root) else { throw HauntError.badResponse }
+        func str(_ e: [String: Any], _ names: [String]) -> String? {
+            for n in names { if let v = e[n] as? String, !v.trimmingCharacters(in: .whitespaces).isEmpty { return v } }
+            return nil
+        }
+        func num(_ e: [String: Any], _ names: [String]) -> Int {
+            for n in names { if let v = e[n] as? Int { return v }; if let v = e[n] as? Double { return Int(v) }; if let s = e[n] as? String, let v = Int(s) { return v } }
+            return 0
+        }
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let iso2 = ISO8601DateFormatter()
+        return list.compactMap { e in
+            guard let url = str(e, ["url", "fileUrl", "link", "rawUrl", "cdnUrl"]) else { return nil }
+            var name = str(e, ["fileName", "name", "originalName", "filename"]) ?? ""
+            let id = str(e, ["id", "uploadId", "_id"]) ?? name
+            if name.isEmpty { name = id }
+            let type = str(e, ["type", "mimeType", "mime", "contentType", "kind"]) ?? ""
+            let ext = (name as NSString).pathExtension.lowercased()
+            let when = str(e, ["createdAt", "uploadedAt", "uploadAt", "date", "created"])
+            let date = when.flatMap { iso.date(from: $0) ?? iso2.date(from: $0) }
+            return RemoteUpload(id: id, name: name, url: url, thumbURL: str(e, ["thumbnailUrl", "thumbnail", "thumb", "previewUrl", "preview"]),
+                                size: num(e, ["size", "fileSize", "bytes"]), created: date,
+                                isVideo: type.hasPrefix("video") || type == "video" || ["mp4", "webm", "mov", "mkv"].contains(ext))
+        }
+    }
+
+    private static func findList(_ root: Any) -> [[String: Any]]? {
+        if let a = root as? [[String: Any]] { return a }
+        guard let o = root as? [String: Any] else { return nil }
+        for k in ["uploads", "files", "items", "data", "results"] {
+            if let a = o[k] as? [[String: Any]] { return a }
+            if let inner = o[k], let a = findList(inner) { return a }
+        }
+        return nil
     }
 
     private static func mimeType(for url: URL) -> String {

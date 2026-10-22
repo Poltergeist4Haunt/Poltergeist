@@ -18,6 +18,7 @@ public partial class App : Application
     readonly DispatcherTimer _saveTimer = new() { Interval = TimeSpan.FromMilliseconds(400) };
     readonly Dictionary<string, Task<byte[]?>> _thumbs = new();
     readonly Dictionary<string, byte[]> _clipImages = new();
+    readonly Dictionary<string, long> _sizes = new();
 
     public AppSettings Settings { get; private set; } = new();
     public HistoryStore History { get; private set; } = null!;
@@ -39,7 +40,13 @@ public partial class App : Application
     {
         base.OnStartup(e);
         _single = new Mutex(true, @"Local\gg.haunt.Poltergeist", out bool first);
-        if (!first) { Shutdown(); return; }
+        if (!first)
+        {
+            MessageBox.Show("Poltergeist is already running (look for the ghost in the tray). If you just downloaded a new version, quit the old one first: right-click the tray ghost, Quit, or end Poltergeist in Task Manager.",
+                "Poltergeist", MessageBoxButton.OK, MessageBoxImage.Information);
+            Shutdown();
+            return;
+        }
 
         DispatcherUnhandledException += (_, ex) =>
         {
@@ -51,7 +58,7 @@ public partial class App : Application
 
         Settings = AppSettings.Load(Paths.Settings);
         _apiKey = ApiKeyStore.Load();
-        History = new HistoryStore(Paths.History) { Post = OnUi };
+        History = new HistoryStore(Paths.History, 100) { Post = OnUi };
         History.Prune(Settings.HistoryClear);
 
         _saveTimer.Tick += (_, _) => { _saveTimer.Stop(); Settings.Save(Paths.Settings); };
@@ -84,6 +91,9 @@ public partial class App : Application
         RegisterHotkeys();
 
         // Hand unused memory back to Windows now and then, so the tray app sits small while idle.
+        var usage = new DispatcherTimer { Interval = TimeSpan.FromSeconds(30) };
+        usage.Tick += (_, _) => Settings.TotalSeconds += 30;                 // time the app has been open, for the stats page
+        usage.Start();
         var trim = new DispatcherTimer { Interval = TimeSpan.FromSeconds(45) };
         trim.Tick += (_, _) => TrimMemory();
         trim.Start();
@@ -158,6 +168,9 @@ public partial class App : Application
             if (r.Cancelled) return;
             if (r.Error != null || r.File == null) { ReportProblem("Screenshot", r.Error ?? "Nothing was captured."); return; }
 
+            Sounds.Play(Settings.CaptureSound);
+            Settings.TotalScreenshots++;
+            ImageEffects.ApplyToFile(r.File, Settings);
             if (Settings.SaveScreenshots) SaveCopy(r.File, Settings.SaveFolder);
             if (edit || Settings.EditBeforeUpload) OpenImageEditor(r.File);
             else UploadFile(r.File, deleteAfter: true);
@@ -202,6 +215,7 @@ public partial class App : Application
         {
             try { if (new FileInfo(file).Length < 40_000_000) _clipImages[file] = File.ReadAllBytes(file); } catch { }
         }
+        try { _sizes[file] = new FileInfo(file).Length; } catch { }
         Uploads.Enqueue(file, deleteAfter);
     }
 
@@ -266,6 +280,8 @@ public partial class App : Application
         var name = job.Name;
         var url = result.Url;
         History.Add(url, name);
+        Settings.TotalUploads++;
+        if (job.File != null && _sizes.Remove(job.File, out var bytesSent)) Settings.BytesUploaded += bytesSent;
 
         byte[]? thumb = null;
         if (job.File != null && _thumbs.Remove(job.File, out var t)) { try { thumb = await t; } catch { } }
@@ -373,6 +389,7 @@ public partial class App : Application
         Tray.Recording = false;
         if (error != null) { ReportProblem("Recording", error); return; }
         if (file == null) return;                              // discarded
+        Settings.TotalRecordings++;
         if (Settings.KeepRecordings)
         {
             var folder = Settings.RecordFolder;

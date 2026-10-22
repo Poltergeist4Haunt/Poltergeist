@@ -42,6 +42,8 @@ enum Sounds {
     static let none = "None"
     static let names = ["Basso", "Blow", "Bottle", "Frog", "Funk", "Glass", "Hero", "Morse", "Ping", "Pop",
                         "Purr", "Sosumi", "Submarine", "Tink"]
+    /// A sound can also be the full path of a file the user picked.
+    static func isCustom(_ name: String) -> Bool { name.hasPrefix("/") }
 }
 
 enum HotKeyAction: String, CaseIterable, Identifiable {
@@ -135,6 +137,28 @@ final class Settings: ObservableObject {
     @Published var historyClear: String { didSet { d.set(historyClear, forKey: "historyClear"); HistoryStore.shared.pruneExpired() } }
     @Published var successSound: String { didSet { d.set(successSound, forKey: "successSound") } }
     @Published var errorSound: String { didSet { d.set(errorSound, forKey: "errorSound") } }
+    /// Played when a screenshot is taken. A system sound, "None", or the path of your own file.
+    @Published var captureSound: String { didSet { d.set(captureSound, forKey: "captureSound") } }
+
+    // Image effects, applied to every screenshot (like ShareX's image effects)
+    @Published var fxOn: Bool { didSet { d.set(fxOn, forKey: "fxOn") } }
+    @Published var fxRound: Bool { didSet { d.set(fxRound, forKey: "fxRound") } }
+    @Published var fxRadius: Int { didSet { d.set(fxRadius, forKey: "fxRadius") } }
+    @Published var fxBorder: Int { didSet { d.set(fxBorder, forKey: "fxBorder") } }
+    @Published var fxBorderColor: String { didSet { d.set(fxBorderColor, forKey: "fxBorderColor") } }
+    @Published var fxShadow: Bool { didSet { d.set(fxShadow, forKey: "fxShadow") } }
+    @Published var fxShadowSize: Int { didSet { d.set(fxShadowSize, forKey: "fxShadowSize") } }
+    @Published var fxWatermark: String { didSet { d.set(fxWatermark, forKey: "fxWatermark") } }
+    /// "bottomRight", "bottomLeft", "topRight" or "topLeft"
+    @Published var fxWatermarkPos: String { didSet { d.set(fxWatermarkPos, forKey: "fxWatermarkPos") } }
+
+    // Usage numbers for the Stats page
+    @Published var totalSeconds: Double { didSet { d.set(totalSeconds, forKey: "totalSeconds") } }
+    @Published var bytesUploaded: Int { didSet { d.set(bytesUploaded, forKey: "bytesUploaded") } }
+    @Published var totalUploads: Int { didSet { d.set(totalUploads, forKey: "totalUploads") } }
+    @Published var totalScreenshots: Int { didSet { d.set(totalScreenshots, forKey: "totalScreenshots") } }
+    @Published var totalRecordings: Int { didSet { d.set(totalRecordings, forKey: "totalRecordings") } }
+    var firstRun: Date
     @Published var notifyOnSuccess: Bool { didSet { d.set(notifyOnSuccess, forKey: "notifyOnSuccess") } }
     @Published var notifyOnError: Bool { didSet { d.set(notifyOnError, forKey: "notifyOnError") } }
     @Published var showToast: Bool { didSet { d.set(showToast, forKey: "showToast") } }
@@ -154,8 +178,16 @@ final class Settings: ObservableObject {
     @Published var saveScreenshots: Bool { didSet { d.set(saveScreenshots, forKey: "saveScreenshots") } }
     @Published var saveFolder: String { didSet { d.set(saveFolder, forKey: "saveFolder") } }
 
+    private var customSound: NSSound?                       // kept alive until it has finished playing
+
     func play(_ name: String) {
-        guard name != Sounds.none else { return }
+        guard name != Sounds.none, !name.isEmpty else { return }
+        if Sounds.isCustom(name) {
+            guard FileManager.default.fileExists(atPath: name) else { return }
+            customSound = NSSound(contentsOfFile: name, byReference: true)
+            customSound?.play()
+            return
+        }
         NSSound(named: name)?.play()
     }
     @Published var copyLink: Bool { didSet { d.set(copyLink, forKey: "copyLink") } }
@@ -190,6 +222,22 @@ final class Settings: ObservableObject {
         historyClear = d.string(forKey: "historyClear") ?? "never"
         successSound = d.string(forKey: "successSound") ?? (soundsOn ? "Glass" : Sounds.none)
         errorSound = d.string(forKey: "errorSound") ?? (soundsOn ? "Basso" : Sounds.none)
+        captureSound = d.string(forKey: "captureSound") ?? Sounds.none
+        fxOn = d.object(forKey: "fxOn") as? Bool ?? false
+        fxRound = d.object(forKey: "fxRound") as? Bool ?? false
+        fxRadius = d.object(forKey: "fxRadius") as? Int ?? 14
+        fxBorder = d.object(forKey: "fxBorder") as? Int ?? 0
+        fxBorderColor = d.string(forKey: "fxBorderColor") ?? "#f27db3"
+        fxShadow = d.object(forKey: "fxShadow") as? Bool ?? false
+        fxShadowSize = d.object(forKey: "fxShadowSize") as? Int ?? 18
+        fxWatermark = d.string(forKey: "fxWatermark") ?? ""
+        fxWatermarkPos = d.string(forKey: "fxWatermarkPos") ?? "bottomRight"
+        totalSeconds = d.object(forKey: "totalSeconds") as? Double ?? 0
+        bytesUploaded = d.object(forKey: "bytesUploaded") as? Int ?? 0
+        totalUploads = d.object(forKey: "totalUploads") as? Int ?? 0
+        totalScreenshots = d.object(forKey: "totalScreenshots") as? Int ?? 0
+        totalRecordings = d.object(forKey: "totalRecordings") as? Int ?? 0
+        if let first = d.object(forKey: "firstRun") as? Date { firstRun = first } else { firstRun = Date(); d.set(firstRun, forKey: "firstRun") }
         notifyOnSuccess = d.object(forKey: "notifyOnSuccess") as? Bool ?? true
         notifyOnError = d.object(forKey: "notifyOnError") as? Bool ?? true
         showToast = d.object(forKey: "showToast") as? Bool ?? true
@@ -235,7 +283,7 @@ final class HistoryStore: ObservableObject {
 
     func add(url: String, name: String) {
         items.insert(HistoryItem(url: url, name: name, date: Date()), at: 0)
-        items = Array(items.prefix(20))
+        items = Array(items.prefix(100))
         save()
     }
 

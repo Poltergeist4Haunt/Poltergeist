@@ -1,4 +1,7 @@
 using System.Collections.Specialized;
+using System.Net.Http;
+using System.Windows.Media.Imaging;
+using SkiaSharp;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -13,7 +16,8 @@ sealed class SettingsWindow : ChromeWindow
 {
     static readonly (string Name, string Glyph)[] Tabs =
     {
-        ("Upload", ""), ("Account", ""), ("General", ""), ("Recordings", ""), ("Embed", ""), ("Domain", ""),
+        ("Upload", "\uE898"), ("Gallery", "\uEB9F"), ("Account", "\uE8D7"), ("General", "\uE713"), ("Recordings", "\uE7C8"),
+        ("Effects", "\uE790"), ("Embed", "\uE8A5"), ("Domain", "\uE774"), ("Stats", "\uE9D2"),
     };
 
     readonly ScrollViewer _scroll = new() { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Padding = new Thickness(0, 0, 4, 0) };
@@ -26,7 +30,7 @@ sealed class SettingsWindow : ChromeWindow
     public SettingsWindow(string? tab)
     {
         Section = "Settings";
-        Width = 780; Height = 760; MinWidth = 640; MinHeight = 520;
+        Width = 968; Height = 760; MinWidth = 640; MinHeight = 520;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
 
         var strip = new WrapPanel { Margin = new Thickness(24, 16, 24, 12) };
@@ -48,6 +52,7 @@ sealed class SettingsWindow : ChromeWindow
         grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         grid.Children.Add(strip);
         _scroll.Margin = new Thickness(24, 0, 20, 0);
+        _scroll.SizeChanged += (_, _) => FitTiles();
         Grid.SetRow(_scroll, 1);
         grid.Children.Add(_scroll);
         Body = grid;
@@ -81,9 +86,13 @@ sealed class SettingsWindow : ChromeWindow
     void Render()
     {
         _uploadList = null;
+        _tiles.Clear(); _pics.Clear();
         _scroll.Content = _tab switch
         {
             "Upload" => UploadTab(),
+            "Gallery" => GalleryTab(),
+            "Effects" => EffectsTab(),
+            "Stats" => StatsTab(),
             "Account" => AccountTab(),
             "General" => GeneralTab(),
             "Recordings" => RecordingsTab(),
@@ -243,12 +252,11 @@ sealed class SettingsWindow : ChromeWindow
             Ui.Toggle("Preview popup", "A small thumbnail with a Copy button in the corner.", s.ShowToast, v => s.ShowToast = v),
             Ui.Toggle("Open in browser", "Open the link when an upload finishes.", s.OpenInBrowser, v => s.OpenInBrowser = v));
 
-        var sounds = new List<(string, string)> { ("None", Sounds.None) };
-        sounds.AddRange(Sounds.Names.Select(n => (n, n)));
         var notify = Theme.CardPanel(
             Theme.Title("Sounds and notifications"),
-            Ui.Row("Success sound", null, Ui.Combo(sounds, s.SuccessSound, v => { s.SuccessSound = v; Sounds.Play(v); }, 230)),
-            Ui.Row("Error sound", null, Ui.Combo(sounds, s.ErrorSound, v => { s.ErrorSound = v; Sounds.Play(v); }, 230)),
+            SoundRow("Capture sound", "When a screenshot is taken.", s.CaptureSound, v => s.CaptureSound = v),
+            SoundRow("Success sound", "When an upload finishes.", s.SuccessSound, v => s.SuccessSound = v),
+            SoundRow("Error sound", "When something fails.", s.ErrorSound, v => s.ErrorSound = v),
             Ui.Toggle("Notify when an upload finishes", null, s.NotifyOnSuccess, v => s.NotifyOnSuccess = v),
             Ui.Toggle("Notify when something fails", null, s.NotifyOnError, v => s.NotifyOnError = v));
 
@@ -623,6 +631,367 @@ sealed class SettingsWindow : ChromeWindow
             });
         stack.Children.Add(btns);
         return Ui.Page(look, text, buttons, PreviewCard(e.Color, e.DiscordAccent, stack));
+    }
+
+    // ---- sounds (Windows' own, or any file you pick, like ShareX) --------------------------------------------------------
+
+    UIElement SoundRow(string title, string sub, string current, Action<string> set)
+    {
+        const string CustomTag = "\u0001custom";
+        var items = new List<(string, string)> { ("None", Sounds.None) };
+        items.AddRange(Sounds.Names.Select(n => (n, n)));
+        if (Sounds.IsCustom(current)) items.Add(("Your file: " + Path.GetFileName(current), current));
+        items.Add(("Choose a file…", CustomTag));
+        var combo = Ui.Combo(items, current, v =>
+        {
+            if (v == CustomTag)
+            {
+                var dlg = new OpenFileDialog { Title = "Choose a sound", Filter = "Sounds|*.wav;*.mp3;*.wma;*.m4a;*.aac|All files|*.*" };
+                if (dlg.ShowDialog() == true) { set(dlg.FileName); Sounds.Play(dlg.FileName); }
+                Dispatcher.BeginInvoke(Render);
+                return;
+            }
+            set(v);
+            Sounds.Play(v);
+        }, 260);
+        return Ui.Row(title, sub, combo);
+    }
+
+    // ---- Gallery -----------------------------------------------------------------------------------------------------------
+
+    static readonly HttpClient Thumbs = MakeHttp();
+
+    readonly List<Border> _tiles = new();
+    readonly List<Border> _pics = new();
+    string _galleryMode = "haunt";                  // "haunt" (everything on your image host) or "pc" (uploads made from this PC)
+    List<RemoteUpload>? _remote;
+    string? _remoteError;
+    bool _remoteLoading;
+
+    async void LoadRemote()
+    {
+        if (_remoteLoading) return;
+        _remoteLoading = true; _remoteError = null;
+        try { _remote = await new HauntClient().ListUploadsAsync(App.Current.ApiKey, 100, CancellationToken.None); }
+        catch (Exception e) { _remoteError = e.Message; }
+        _remoteLoading = false;
+        if (IsLoaded && _tab == "Gallery") Render();
+    }
+
+    UIElement GalleryTab()
+    {
+        var page = new StackPanel { Margin = new Thickness(0, 0, 0, 28) };
+        var head = new Grid { Margin = new Thickness(0, 0, 0, 14) };
+        head.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        head.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var seg = new StackPanel { Orientation = Orientation.Horizontal };
+        foreach (var (label, mode) in new[] { ("Haunt gallery", "haunt"), ("This PC", "pc") })
+        {
+            var rb = new RadioButton { Style = Theme.Style("Tab"), Content = label, GroupName = "gallerymode", IsChecked = _galleryMode == mode, Margin = new Thickness(0, 0, 6, 0) };
+            var m = mode;
+            rb.Checked += (_, _) => { if (_galleryMode != m) { _galleryMode = m; Render(); } };
+            seg.Children.Add(rb);
+        }
+        head.Children.Add(seg);
+        UIElement refresh = _galleryMode == "haunt"
+            ? Theme.Pill("Refresh", () => { _remote = null; Render(); }, false)
+            : Theme.Pill("Clear list", () => { App.Current.History.Clear(); Render(); }, false);
+        Grid.SetColumn(refresh, 1);
+        head.Children.Add(refresh);
+        page.Children.Add(head);
+
+        if (_galleryMode == "pc") { page.Children.Add(LocalGallery()); return page; }
+
+        if (string.IsNullOrEmpty(App.Current.ApiKey))
+        {
+            page.Children.Add(Ui.Banner("Add your API key in the Account tab to see your Haunt gallery."));
+            return page;
+        }
+        if (_remote == null && _remoteError == null)
+        {
+            LoadRemote();
+            page.Children.Add(Theme.Label("Loading your gallery…", 13, Theme.Muted));
+            return page;
+        }
+        if (_remoteError != null)
+        {
+            page.Children.Add(Ui.Banner(_remoteError));
+            var retry = Theme.Pill("Try again", () => { _remote = null; _remoteError = null; Render(); });
+            retry.HorizontalAlignment = HorizontalAlignment.Left; retry.Margin = new Thickness(0, 12, 0, 0);
+            page.Children.Add(retry);
+            return page;
+        }
+        if (_remote!.Count == 0) { page.Children.Add(Theme.Sub("Nothing on your image host yet.")); return page; }
+
+        page.Children.Add(Theme.Label($"{_remote.Count} file{(_remote.Count == 1 ? "" : "s")} on your image host", 13, Theme.Muted));
+        ((TextBlock)page.Children[^1]).Margin = new Thickness(0, 0, 0, 10);
+        var wrap = new WrapPanel();
+        foreach (var u in _remote)
+        {
+            var url = u.Url;
+            var direct = LinkFormat.Direct.Format(url, u.Name);
+            wrap.Children.Add(Tile(u.Name, u.Created ?? DateTime.MinValue, u.ThumbUrl ?? direct, u.IsVideo, url, direct,
+                () => App.Current.CopyText(App.Current.Settings.LinkFormat.Format(url, u.Name))));
+        }
+        wrap.Margin = new Thickness(0, 0, -12, 0);
+        page.Children.Add(wrap);
+        Dispatcher.BeginInvoke(FitTiles, System.Windows.Threading.DispatcherPriority.Loaded);
+        return page;
+    }
+
+    UIElement LocalGallery()
+    {
+        var items = App.Current.History.Items.ToList();
+        if (items.Count == 0)
+            return Theme.CardPanel(Theme.Title("Nothing here yet"), Theme.Sub("Everything you upload from this PC shows up here with a preview."));
+        var wrap = new WrapPanel();
+        foreach (var h in items)
+        {
+            var item = h;
+            var direct = LinkFormat.Direct.Format(item.Url, item.Name);
+            bool video = new[] { ".mp4", ".webm", ".mov", ".mkv" }.Contains(Path.GetExtension(item.Name).ToLowerInvariant());
+            wrap.Children.Add(Tile(item.Name, item.Date, direct, video, item.Url, direct,
+                () => App.Current.CopyText(App.Current.Settings.LinkFormat.Format(item.Url, item.Name))));
+        }
+        wrap.Margin = new Thickness(0, 0, -12, 0);
+        Dispatcher.BeginInvoke(FitTiles, System.Windows.Threading.DispatcherPriority.Loaded);
+        return wrap;
+    }
+
+    UIElement Tile(string name, DateTime when, string thumbUrl, bool video, string openUrl, string directUrl, Action copy)
+    {
+        var glyph = new TextBlock { Text = video ? "\uE714" : "\uEB9F", FontFamily = Theme.IconFont, FontSize = 26, Foreground = Theme.Muted, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+        var img = new System.Windows.Controls.Image { Stretch = Stretch.UniformToFill };
+        var pic = new Border { Height = 108, Background = new SolidColorBrush(Color.FromArgb(15, 255, 255, 255)), ClipToBounds = true, CornerRadius = new CornerRadius(10), Cursor = Cursors.Hand };
+        var inner = new Grid();
+        inner.Children.Add(glyph); inner.Children.Add(img);
+        pic.Child = inner;
+        pic.MouseLeftButtonUp += (_, _) => new MediaPreviewWindow(name, directUrl, video, copy, openUrl) { Owner = this }.Show();
+        pic.ToolTip = "Click for a bigger preview";
+        _ = LoadThumb(thumbUrl, img, glyph);
+
+        var title = Theme.Label(name, 12, Theme.Text, FontWeights.Medium);
+        title.TextTrimming = TextTrimming.CharacterEllipsis;
+        title.Margin = new Thickness(2, 8, 2, 0);
+        var date = Theme.Label(when == DateTime.MinValue ? " " : when.ToString("MMM d, h:mm tt"), 11, Theme.Muted);
+        date.Margin = new Thickness(2, 1, 2, 8);
+        var copyBtn = Theme.Pill("Copy link", copy);
+        copyBtn.Padding = new Thickness(10, 4, 10, 4); copyBtn.FontSize = 11.5;
+        var openBtn = Theme.Pill("Open", () => App.OpenUrl(openUrl), false);
+        openBtn.Padding = new Thickness(10, 4, 10, 4); openBtn.FontSize = 11.5; openBtn.Margin = new Thickness(6, 0, 0, 0);
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal };
+        buttons.Children.Add(copyBtn); buttons.Children.Add(openBtn);
+
+        var stack = new StackPanel();
+        stack.Children.Add(pic); stack.Children.Add(title); stack.Children.Add(date); stack.Children.Add(buttons);
+        var tile = new Border
+        {
+            Width = 176, Margin = new Thickness(0, 0, 12, 12), Padding = new Thickness(10), Background = Theme.Card,
+            BorderBrush = Theme.Border, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(16), Child = stack,
+        };
+        _tiles.Add(tile); _pics.Add(pic);
+        return tile;
+    }
+
+    /// <summary>Spreads the tiles over the whole width of the window, however wide it is.</summary>
+    void FitTiles()
+    {
+        if (_tiles.Count == 0) return;
+        double w = _scroll.ViewportWidth;
+        if (w < 100) return;
+        int cols = Math.Max(1, (int)((w + 12) / (176 + 12)));
+        double tileW = Math.Floor((w + 12) / cols - 12);
+        foreach (var t in _tiles) t.Width = tileW;
+        foreach (var p in _pics) p.Height = Math.Max(90, (tileW - 20) * 0.62);
+    }
+
+    static readonly SemaphoreSlim VideoSlots = new(2);          // a couple of video frames at a time
+
+    static HttpClient MakeHttp()
+    {
+        var c = new HttpClient { Timeout = TimeSpan.FromSeconds(20) };
+        c.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36");
+        c.DefaultRequestHeaders.TryAddWithoutValidation("Accept", "image/avif,image/webp,image/png,image/*,*/*;q=0.8");
+        return c;
+    }
+
+    static bool IsVideoUrl(string url)
+    {
+        try { return new[] { ".mp4", ".webm", ".mov", ".mkv" }.Contains(Path.GetExtension(new Uri(url).AbsolutePath).ToLowerInvariant()); }
+        catch { return false; }
+    }
+
+    /// <summary>A small preview: the picture itself, or one frame from a video (needs ffmpeg).</summary>
+    async Task LoadThumb(string url, System.Windows.Controls.Image img, TextBlock glyph)
+    {
+        BitmapImage? shown = null;
+        try
+        {
+            byte[]? bytes = null;
+            if (IsVideoUrl(url)) bytes = await VideoFrame(url);
+            else
+            {
+                try { bytes = await Thumbs.GetByteArrayAsync(url); } catch { }
+                if (bytes == null) shown = await ViaWindows(url, 360);       // Windows' own downloader, in case the host only likes browsers
+            }
+            if (shown == null && bytes != null)
+            {
+                var bi = new BitmapImage();
+                bi.BeginInit();
+                bi.StreamSource = new MemoryStream(bytes);
+                bi.DecodePixelWidth = 360;
+                bi.CacheOption = BitmapCacheOption.OnLoad;
+                bi.EndInit();
+                bi.Freeze();
+                shown = bi;
+            }
+        }
+        catch { }
+        if (shown != null && IsLoaded) { img.Source = shown; glyph.Visibility = Visibility.Collapsed; }
+    }
+
+    static async Task<BitmapImage?> ViaWindows(string url, int width)
+    {
+        try
+        {
+            var bi = new BitmapImage();
+            var done = new TaskCompletionSource<bool>();
+            bi.BeginInit();
+            bi.UriSource = new Uri(url);
+            bi.DecodePixelWidth = width;
+            bi.CacheOption = BitmapCacheOption.OnLoad;
+            bi.EndInit();
+            if (!bi.IsDownloading) { bi.Freeze(); return bi; }
+            bi.DownloadCompleted += (_, _) => done.TrySetResult(true);
+            bi.DownloadFailed += (_, _) => done.TrySetResult(false);
+            if (await Task.WhenAny(done.Task, Task.Delay(15000)) != done.Task || !done.Task.Result) return null;
+            bi.Freeze();
+            return bi;
+        }
+        catch { return null; }
+    }
+
+    static async Task<byte[]?> VideoFrame(string url)
+    {
+        if (!Ffmpeg.Available) return null;
+        await VideoSlots.WaitAsync();
+        try
+        {
+            using var tool = ToolProcess.Start(Ffmpeg.Require(), new[]
+            {
+                "-v", "error", "-nostdin", "-user_agent", "Mozilla/5.0", "-ss", "1", "-i", url, "-frames:v", "1",
+                "-vf", "scale=360:-2", "-f", "image2pipe", "-c:v", "png", "-",
+            });
+            using var ms = new MemoryStream();
+            var copy = tool.Output.CopyToAsync(ms);
+            if (await Task.WhenAny(copy, Task.Delay(20000)) != copy) return null;
+            return ms.Length > 0 ? ms.ToArray() : null;
+        }
+        catch { return null; }
+        finally { VideoSlots.Release(); }
+    }
+
+    // ---- Effects -----------------------------------------------------------------------------------------------------------
+
+    UIElement SliderRow(string title, string? sub, double min, double max, double value, Action<double> set, string unit = "")
+    {
+        var slider = new Slider { Minimum = min, Maximum = max, Value = value, Width = 170, SmallChange = 1, LargeChange = 4 };
+        var label = Theme.Label($"{(int)value}{unit}", 12, Theme.Muted);
+        label.Width = 44; label.TextAlignment = TextAlignment.Right; label.VerticalAlignment = VerticalAlignment.Center;
+        slider.ValueChanged += (_, e) => { var v = Math.Round(e.NewValue); label.Text = $"{(int)v}{unit}"; set(v); };
+        var box = new StackPanel { Orientation = Orientation.Horizontal };
+        box.Children.Add(slider); box.Children.Add(label);
+        return Ui.Row(title, sub, box);
+    }
+
+    UIElement EffectsTab()
+    {
+        var s = S;
+        var preview = new System.Windows.Controls.Image { Stretch = Stretch.Uniform, MaxHeight = 220, HorizontalAlignment = HorizontalAlignment.Center };
+        void Refresh()
+        {
+            using var sample = SampleShot();
+            if (s.FxOn && ImageEffects.Wanted(s))
+            {
+                using var fx = ImageEffects.Apply(sample, s);
+                preview.Source = Imaging.ToBitmapSource(fx);
+            }
+            else preview.Source = Imaging.ToBitmapSource(sample);
+        }
+        Action<Action> change = a => { a(); Refresh(); };
+
+        var positions = new[] { ("Bottom right", "BottomRight"), ("Bottom left", "BottomLeft"), ("Top right", "TopRight"), ("Top left", "TopLeft") };
+        var colorBox = Ui.Box(s.FxBorderColor, "#f27db3", v => change(() => s.FxBorderColor = v));
+        colorBox.Width = 110;
+
+        var master = Theme.CardPanel(
+            Theme.Title("Image effects"),
+            Theme.Sub("Touch-ups added to every screenshot you take, before it's edited or uploaded."),
+            Ui.Toggle("Use image effects", null, s.FxOn, v => change(() => s.FxOn = v)));
+        var look = Theme.CardPanel(
+            Ui.Toggle("Rounded corners", null, s.FxRound, v => change(() => s.FxRound = v)),
+            SliderRow("Corner size", null, 4, 60, s.FxRadius, v => change(() => s.FxRadius = (int)v), " px"),
+            SliderRow("Border", "0 for none", 0, 16, s.FxBorder, v => change(() => s.FxBorder = (int)v), " px"),
+            Ui.Row("Border colour", null, colorBox),
+            Ui.Toggle("Drop shadow", "Adds a soft transparent margin around the shot.", s.FxShadow, v => change(() => s.FxShadow = v)),
+            SliderRow("Shadow size", null, 6, 50, s.FxShadowSize, v => change(() => s.FxShadowSize = (int)v), " px"));
+        var mark = Theme.CardPanel(
+            Theme.Title("Watermark"),
+            Ui.Field("Text", s.FxWatermark, "Leave empty for none", v => change(() => s.FxWatermark = v)),
+            Ui.Row("Position", null, Ui.Combo(positions, s.FxWatermarkPos, v => change(() => s.FxWatermarkPos = v), 170)));
+        var prev = Theme.CardPanel(Theme.Title("Preview"), new Border
+        {
+            Background = new SolidColorBrush(Color.FromRgb(0x14, 0x14, 0x16)), CornerRadius = new CornerRadius(12), Padding = new Thickness(18), Child = preview,
+        });
+        Refresh();
+        return Pad(Ui.Page(master, look, mark, prev));
+    }
+
+    static SKBitmap SampleShot()
+    {
+        var bmp = new SKBitmap(420, 240, SKColorType.Bgra8888, SKAlphaType.Premul);
+        using var c = new SKCanvas(bmp);
+        using (var bg = new SKPaint { Shader = SKShader.CreateLinearGradient(new SKPoint(0, 0), new SKPoint(420, 240), new[] { new SKColor(40, 36, 56), new SKColor(18, 22, 34) }, null, SKShaderTileMode.Clamp) })
+            c.DrawRect(0, 0, 420, 240, bg);
+        using var panel = new SKPaint { Color = new SKColor(255, 255, 255, 22), IsAntialias = true };
+        c.DrawRoundRect(24, 24, 180, 96, 10, 10, panel);
+        c.DrawRoundRect(222, 24, 174, 44, 10, 10, panel);
+        c.DrawRoundRect(222, 80, 174, 136, 10, 10, panel);
+        c.DrawRoundRect(24, 134, 180, 82, 10, 10, panel);
+        using var accent = new SKPaint { Color = new SKColor(0xf2, 0x7d, 0xb3), IsAntialias = true };
+        c.DrawCircle(60, 70, 16, accent);
+        return bmp;
+    }
+
+    // ---- Stats -------------------------------------------------------------------------------------------------------------
+
+    UIElement StatsTab()
+    {
+        var s = S;
+        var t = TimeSpan.FromSeconds(s.TotalSeconds);
+        string time = t.TotalHours >= 1 ? $"{(int)t.TotalHours}h {t.Minutes}m" : $"{t.Minutes}m";
+        string data = s.BytesUploaded >= 1_000_000_000 ? $"{s.BytesUploaded / 1e9:0.0} GB" : $"{s.BytesUploaded / 1e6:0.#} MB";
+        Border Stat(string label, string value)
+        {
+            var sp = new StackPanel();
+            sp.Children.Add(Theme.Label(value, 26, Theme.Text, FontWeights.SemiBold));
+            var l = Theme.Label(label, 12.5, Theme.Muted);
+            l.Margin = new Thickness(0, 2, 0, 0);
+            sp.Children.Add(l);
+            return new Border { Background = Theme.Card, BorderBrush = Theme.Border, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(18), Padding = new Thickness(20), Margin = new Thickness(0, 0, 12, 12), Child = sp, MinWidth = 190 };
+        }
+        var grid = new WrapPanel();
+        foreach (var (l, v) in new[]
+        {
+            ("Time with Poltergeist open", time), ("Uploads", s.TotalUploads.ToString("N0")), ("Screenshots taken", s.TotalScreenshots.ToString("N0")),
+            ("Recordings", s.TotalRecordings.ToString("N0")), ("Data uploaded", data), ("Using it since", s.FirstRun.ToString("MMM d, yyyy")),
+        }) grid.Children.Add(Stat(l, v));
+        var hint = Theme.Sub("Counted on this PC only. Time adds up while Poltergeist runs in the background.");
+        hint.Margin = new Thickness(0, 4, 0, 0);
+        var page = new StackPanel { Margin = new Thickness(0, 0, 0, 28) };
+        page.Children.Add(grid);
+        page.Children.Add(hint);
+        return page;
     }
 
     // ---- Domain ------------------------------------------------------------------------------------------------------------

@@ -73,6 +73,10 @@ sealed class RecordingControls : Window
             Effect = new DropShadowEffect { BlurRadius = 20, ShadowDepth = 4, Opacity = 0.55, Color = Colors.Black },
         };
 
+        // drag it anywhere (the buttons keep their own clicks)
+        MouseLeftButtonDown += (_, e) => { try { if (e.ButtonState == MouseButtonState.Pressed) DragMove(); } catch { } };
+        if (Content is Border outer) outer.Cursor = Cursors.SizeAll;
+
         var blink = new DoubleAnimation(1, 0.25, TimeSpan.FromMilliseconds(700)) { AutoReverse = true, RepeatBehavior = RepeatBehavior.Forever };
         _dot.BeginAnimation(OpacityProperty, blink);
 
@@ -105,8 +109,16 @@ sealed class RecordingControls : Window
         Native.SetWindowPos(h, new IntPtr(-1), x, y, 0, 0, 0x0001 | Native.SWP_NOACTIVATE);
     }
 
+    /// <summary>The taskbar can climb over other topmost windows; take the top spot back.</summary>
+    void KeepOnTop()
+    {
+        var h = new WindowInteropHelper(this).Handle;
+        if (h != IntPtr.Zero) Native.SetWindowPos(h, new IntPtr(-1), 0, 0, 0, 0, 0x0001 | 0x0002 | Native.SWP_NOACTIVATE);
+    }
+
     public void Update()
     {
+        KeepOnTop();
         var t = _rec.Elapsed;
         _time.Text = t.TotalHours >= 1 ? $"{(int)t.TotalHours}:{t.Minutes:00}:{t.Seconds:00}" : $"{t.Minutes}:{t.Seconds:00}";
         _pause.Content = _rec.IsPaused ? "" : "";

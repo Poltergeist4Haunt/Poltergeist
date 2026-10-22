@@ -140,6 +140,8 @@ final class UploadManager: ObservableObject {
                 }
                 if Task.isCancelled { return }
                 update(id) { $0.progress = 1; $0.state = .done(result.url) }
+                settings.totalUploads += 1
+                settings.bytesUploaded += (try? FileManager.default.attributesOfItem(atPath: file.path)[.size] as? Int) ?? 0
                 HistoryStore.shared.add(url: result.url, name: result.fileName ?? file.lastPathComponent)
 
                 let link = settings.linkFormat.format(url: result.url, name: file.lastPathComponent)

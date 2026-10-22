@@ -21,11 +21,24 @@ static class Program
         string which = args.Length > 0 ? args[0] : "all";
         if (which == "icon") return MakeIcons(args.Length > 1 ? args[1] : ".");
         if (which is "all" or "model") ModelTests();
-        if (which is "all" or "render") RenderTests();
+        if (which is "all" or "render") { RenderTests(); EffectTests(); }
         if (which is "all" or "video") await VideoTests.RunAsync();
         if (which is "all" or "haunt") await HauntTests.RunAsync();
         Console.WriteLine($"\n{T.Pass} passed, {T.Fail} failed");
         return T.Fail == 0 ? 0 : 1;
+    }
+
+    static void EffectTests()
+    {
+        Console.WriteLine("Image effects");
+        var cfg = new AppSettings { FxOn = true, FxRound = true, FxRadius = 20, FxBorder = 4, FxShadow = true, FxShadowSize = 10, FxWatermark = "poltergeist" };
+        using var src = new SkiaSharp.SKBitmap(200, 100);
+        using (var c = new SkiaSharp.SKCanvas(src)) c.Clear(new SkiaSharp.SKColor(30, 120, 200));
+        using var fx = ImageEffects.Apply(src, cfg);
+        T.Check("shadow adds a margin around the shot", fx.Width == 200 + 40 && fx.Height == 100 + 40);
+        T.Check("rounded corners cut the corner transparent", fx.GetPixel(20, 20).Alpha < 40);
+        T.Check("the middle of the picture is kept", fx.GetPixel(fx.Width / 2, fx.Height / 2).Blue > 150);
+        T.Check("effects off means nothing to do", !ImageEffects.Wanted(new AppSettings()));
     }
 
     /// <summary>Writes Poltergeist.ico (and PNG previews) from the ghost drawing in Core.</summary>

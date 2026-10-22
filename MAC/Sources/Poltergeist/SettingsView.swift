@@ -4,11 +4,14 @@ import Carbon.HIToolbox
 import UniformTypeIdentifiers
 
 enum SettingsTab: String, CaseIterable, Identifiable {
-    case upload = "Upload", account = "Account", general = "General", recordings = "Recordings", embed = "Embed", domain = "Domain"
+    case upload = "Upload", gallery = "Gallery", account = "Account", general = "General", recordings = "Recordings", effects = "Effects", embed = "Embed", domain = "Domain", stats = "Stats"
     var id: String { rawValue }
     var icon: String {
         switch self {
         case .upload: return "arrow.up.circle.fill"
+        case .gallery: return "photo.on.rectangle"
+        case .effects: return "wand.and.stars"
+        case .stats: return "chart.bar.fill"
         case .account: return "key.fill"
         case .general: return "gearshape.fill"
         case .recordings: return "record.circle"
@@ -23,21 +26,26 @@ struct SettingsView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 6) {
-                ForEach(SettingsTab.allCases) { t in
-                    Button { tab = t } label: {
-                        Label(t.rawValue, systemImage: t.icon)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(SettingsTab.allCases) { t in
+                        Button { tab = t } label: {
+                            Label(t.rawValue, systemImage: t.icon)
+                        }
+                        .buttonStyle(TabButtonStyle(selected: tab == t))
                     }
-                    .buttonStyle(TabButtonStyle(selected: tab == t))
                 }
-                Spacer()
+                .padding(.horizontal, 24)
             }
-            .padding(.horizontal, 24).padding(.top, 38).padding(.bottom, 14)
+            .padding(.top, 38).padding(.bottom, 14)
 
             ScrollView {
                 Group {
                     switch tab {
                     case .upload: UploadView()
+                    case .gallery: GalleryView()
+                    case .effects: EffectsView()
+                    case .stats: StatsView()
                     case .account: AccountView()
                     case .general: GeneralView()
                     case .recordings: RecordingsView()
@@ -114,8 +122,9 @@ struct GeneralView: View {
 
             Card {
                 sectionTitle("Sounds and notifications")
-                pickerRow("Success sound", "") { soundPicker($s.successSound) }
-                pickerRow("Error sound", "") { soundPicker($s.errorSound) }
+                HStack { row("Capture sound", "When a screenshot is taken."); Spacer(); SoundPicker(value: $s.captureSound) }
+                HStack { row("Success sound", "When an upload finishes."); Spacer(); SoundPicker(value: $s.successSound) }
+                HStack { row("Error sound", "When something fails."); Spacer(); SoundPicker(value: $s.errorSound) }
                 Toggle(isOn: $s.notifyOnSuccess) { row("Notify when an upload finishes", "") }
                 Toggle(isOn: $s.notifyOnError) { row("Notify when something fails", "") }
             }.toggleStyle(HauntToggleStyle())

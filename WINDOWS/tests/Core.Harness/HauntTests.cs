@@ -44,6 +44,7 @@ static class HauntTests
                 if (path == "/hang") { try { await Task.Delay(60000, _stop.Token); } catch { } return; }
                 if (path == "/401") { await Reply(ctx, 401, "{\"error\":\"Invalid API key.\",\"code\":\"INVALID_API_KEY\"}"); return; }
                 if (path == "/413") { await Reply(ctx, 413, "{\"message\":\"File too large for your plan.\"}"); return; }
+                if (path.EndsWith("/uploads")) { await Reply(ctx, 200, "{\"data\":{\"uploads\":[{\"id\":\"a1\",\"fileName\":\"a1.png\",\"url\":\"https://i.haunt.gg/a1.png\",\"size\":2048,\"createdAt\":\"2026-10-20T10:00:00Z\"},{\"id\":\"b2\",\"name\":\"clip.mp4\",\"url\":\"https://i.haunt.gg/b2.mp4\",\"mimeType\":\"video/mp4\"},{\"nope\":1}]}}"); return; }
                 if (path == "/junk") { await Reply(ctx, 200, "<html>hello</html>"); return; }
                 await Reply(ctx, 200, "{\"url\":\"https://i.haunt.gg/abc123\",\"id\":\"abc123\",\"fileName\":\"abc123\"}");
             }
@@ -83,6 +84,13 @@ static class HauntTests
         T.Check("sends a multipart body with field 'file' and the file's name", server.LastBodyHead!.Contains("name=\"file\"") && server.LastBodyHead.Contains("filename=\"video.mp4\"") && server.LastBodyHead.Contains("video/mp4"));
         T.Check("the whole file was sent", server.LastLength > 6_000_000);
         T.Check("progress reaches 100%", peak >= 0.999);
+
+        // ---- listing your own uploads
+        HauntClient.UploadUri = new Uri(server.Base + "/api/imagehost/upload");
+        var listed = await client.ListUploadsAsync("key-xyz", 50, CancellationToken.None);
+        T.Check("list: reads files from a nested reply and skips junk rows", listed.Count == 2 && listed[0].Name == "a1.png" && listed[0].Size == 2048);
+        T.Check("list: sends the API key", server.LastKey == "key-xyz");
+        T.Check("list: knows which file is a video and reads dates", listed[1].IsVideo && !listed[0].IsVideo && listed[0].Created != null);
 
         HauntClient.UploadUri = new Uri(server.Base + "/401");
         try { await client.UploadAsync(big, "bad", null, CancellationToken.None); T.Check("401 raises an error", false); }
