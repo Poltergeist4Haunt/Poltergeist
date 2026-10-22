@@ -53,3 +53,7 @@ Layout: `src/Poltergeist.Core` (all logic and drawing, cross-platform), `src/Pol
 - Recording captures through ffmpeg's `gdigrab`; on setups with different display scaling per monitor, record on the primary monitor
   for exact framing.
 - The Embed and Domain tabs are saved locally only: Haunt's API has no endpoint for them yet (same as the Mac app).
+
+---
+
+Created by [Pix/Nico](https://haunt.gg/pix) · [A Person with a Creative Mind.](https://haunt.gg/SandMan)

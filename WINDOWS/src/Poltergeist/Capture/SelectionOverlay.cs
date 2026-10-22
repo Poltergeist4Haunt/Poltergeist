@@ -36,7 +36,7 @@ sealed class SelectionOverlay : Window
 
     public event Action<Rectangle?>? Done;
 
-    public SelectionOverlay(Rectangle bounds, BitmapSource? frozen, bool dim, Kind kind, List<Native.WindowInfo> windows, string hint)
+    public SelectionOverlay(Rectangle bounds, BitmapSource? frozen, bool dim, Kind kind, List<Native.WindowInfo> windows, string hint, string? glyph = null)
     {
         _bounds = bounds;
         _kind = kind;
@@ -71,7 +71,11 @@ sealed class SelectionOverlay : Window
         _hint.VerticalAlignment = VerticalAlignment.Top;
         _hint.Margin = new Thickness(0, 28, 0, 0);
         _hint.IsHitTestVisible = false;
-        _hint.Child = new TextBlock { Text = hint, FontSize = 13, Foreground = Brushes.White, FontFamily = Theme.UiFont };
+        var hintRow = new StackPanel { Orientation = Orientation.Horizontal };
+        if (glyph != null)
+            hintRow.Children.Add(new TextBlock { Text = glyph, FontFamily = Theme.IconFont, FontSize = 14, Foreground = Theme.Accent, Margin = new Thickness(0, 1, 9, 0), VerticalAlignment = VerticalAlignment.Center });
+        hintRow.Children.Add(new TextBlock { Text = hint, FontSize = 13, Foreground = Brushes.White, FontFamily = Theme.UiFont, VerticalAlignment = VerticalAlignment.Center });
+        _hint.Child = hintRow;
         root.Children.Add(_hint);
         Content = root;
         UpdateDim(null);

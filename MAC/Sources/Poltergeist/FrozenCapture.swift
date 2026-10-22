@@ -77,7 +77,7 @@ final class FreezeView: NSView {
         dim.fill()
 
         guard let r = selection else {
-            label("Drag to select an area  ·  Esc to cancel", at: NSPoint(x: bounds.midX, y: bounds.midY))
+            label(ActionHint.text.isEmpty ? "Drag to select an area  ·  Esc to cancel" : ActionHint.text, at: NSPoint(x: bounds.midX, y: bounds.midY))
             return
         }
         NSColor(Theme.accent).setStroke()

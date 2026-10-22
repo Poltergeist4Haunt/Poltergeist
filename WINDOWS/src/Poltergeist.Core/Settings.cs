@@ -154,6 +154,9 @@ public sealed class AppSettings : ObservableObject
     public bool EditRecordings { get => _editRecordings; set => Set(ref _editRecordings, value); }
 
     // ---- general
+    string _settingsLayout = "side";
+    /// <summary>Where the settings menu sits: "side" (a sidebar, like the Haunt dashboard) or "top" (a row of tabs).</summary>
+    public string SettingsLayout { get => _settingsLayout; set => Set(ref _settingsLayout, value); }
     bool _launchAtLogin;
     public bool LaunchAtLogin { get => _launchAtLogin; set => Set(ref _launchAtLogin, value); }
 

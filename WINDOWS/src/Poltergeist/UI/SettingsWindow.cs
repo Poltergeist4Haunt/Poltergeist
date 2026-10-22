@@ -17,7 +17,7 @@ sealed class SettingsWindow : ChromeWindow
     static readonly (string Name, string Glyph)[] Tabs =
     {
         ("Upload", "\uE898"), ("Gallery", "\uEB9F"), ("Account", "\uE8D7"), ("General", "\uE713"), ("Recordings", "\uE7C8"),
-        ("Effects", "\uE790"), ("Embed", "\uE8A5"), ("Domain", "\uE774"), ("Stats", "\uE9D2"),
+        ("Effects", "\uE790"), ("Embed", "\uE8A5"), ("Domain", "\uE774"),
     };
 
     readonly ScrollViewer _scroll = new() { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Padding = new Thickness(0, 0, 4, 0) };
@@ -27,41 +27,112 @@ sealed class SettingsWindow : ChromeWindow
 
     AppSettings S => App.Current.Settings;
 
+    readonly Grid _shell = new();
+    string? _startTab;
+
     public SettingsWindow(string? tab)
     {
         Section = "Settings";
         Width = 968; Height = 760; MinWidth = 640; MinHeight = 520;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
+        _startTab = tab;
 
-        var strip = new WrapPanel { Margin = new Thickness(24, 16, 24, 12) };
-        foreach (var (name, glyph) in Tabs)
-        {
-            var label = new StackPanel { Orientation = Orientation.Horizontal };
-            label.Children.Add(new TextBlock { Text = glyph, FontFamily = Theme.IconFont, FontSize = 13, Margin = new Thickness(0, 1, 8, 0), VerticalAlignment = VerticalAlignment.Center, Foreground = Brushes.Transparent });
-            label.Children.Add(new TextBlock { Text = name, VerticalAlignment = VerticalAlignment.Center, Foreground = Brushes.Transparent });
-            var rb = new RadioButton { Style = Theme.Style("Tab"), GroupName = "tabs", Margin = new Thickness(0, 0, 6, 4) };
-            var name1 = name;
-            rb.Content = TabContent(glyph, name, rb);
-            rb.Checked += (_, _) => { _tab = name1; Render(); };
-            _tabButtons[name] = rb;
-            strip.Children.Add(rb);
-        }
-
-        var grid = new Grid();
-        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-        grid.Children.Add(strip);
-        _scroll.Margin = new Thickness(24, 0, 20, 0);
         _scroll.SizeChanged += (_, _) => FitTiles();
-        Grid.SetRow(_scroll, 1);
-        grid.Children.Add(_scroll);
-        Body = grid;
+        Body = _shell;
+        BuildLayout();
 
         AllowDrop = true;
         Drop += (_, e) => DropFiles(e);
-        Loaded += (_, _) => SelectTab(tab ?? (string.IsNullOrEmpty(App.Current.ApiKey) ? "Account" : "Upload"));
+        Loaded += (_, _) => SelectTab(_startTab ?? (string.IsNullOrEmpty(App.Current.ApiKey) ? "Account" : "Upload"));
         App.Current.Uploads.Jobs.CollectionChanged += JobsChanged;
-        Closed += (_, _) => App.Current.Uploads.Jobs.CollectionChanged -= JobsChanged;
+        Closed += (_, _) => { App.Current.Uploads.Jobs.CollectionChanged -= JobsChanged; DisposeGallery(); };
+    }
+
+    /// <summary>The menu either runs down the left (like the Haunt dashboard) or across the top; the footer with the credits is always there.</summary>
+    void BuildLayout()
+    {
+        (_scroll.Parent as Panel)?.Children.Remove(_scroll);
+        _shell.Children.Clear();
+        _shell.RowDefinitions.Clear();
+        _shell.ColumnDefinitions.Clear();
+        _tabButtons.Clear();
+        _shell.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        _shell.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+        var main = new Grid();
+        bool side = S.SettingsLayout != "top";
+        if (side)
+        {
+            main.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(212) });
+            main.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            var list = new StackPanel { Margin = new Thickness(14, 18, 14, 14) };
+            foreach (var (name, glyph) in Tabs) list.Children.Add(MakeTab(name, glyph, side: true));
+            var sideBar = new Border
+            {
+                Background = Theme.Card, BorderBrush = Theme.Border, BorderThickness = new Thickness(0, 0, 1, 0),
+                Child = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = list },
+            };
+            main.Children.Add(sideBar);
+            _scroll.Margin = new Thickness(26, 18, 20, 0);
+            Grid.SetColumn(_scroll, 1);
+            main.Children.Add(_scroll);
+        }
+        else
+        {
+            main.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            main.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+            var strip = new WrapPanel { Margin = new Thickness(24, 16, 24, 12) };
+            foreach (var (name, glyph) in Tabs) strip.Children.Add(MakeTab(name, glyph, side: false));
+            main.Children.Add(strip);
+            _scroll.Margin = new Thickness(24, 0, 20, 0);
+            Grid.SetRow(_scroll, 1);
+            main.Children.Add(_scroll);
+        }
+        _shell.Children.Add(main);
+        var footer = Footer();
+        Grid.SetRow(footer, 1);
+        _shell.Children.Add(footer);
+    }
+
+    RadioButton MakeTab(string name, string glyph, bool side)
+    {
+        var rb = new RadioButton { Style = Theme.Style(side ? "SideTab" : "Tab"), GroupName = "tabs", Margin = side ? new Thickness(0, 0, 0, 4) : new Thickness(0, 0, 6, 4) };
+        var n = name;
+        rb.Content = TabContent(glyph, name, rb);
+        rb.Checked += (_, _) => { _tab = n; Render(); };
+        _tabButtons[name] = rb;
+        return rb;
+    }
+
+    /// <summary>Credits and the version, along the bottom of every page.</summary>
+    UIElement Footer()
+    {
+        TextBlock T(string s, Brush? c = null) => new() { Text = s, FontSize = 12, Foreground = c ?? Theme.Muted, VerticalAlignment = VerticalAlignment.Center };
+        TextBlock Link(string text, string? url)
+        {
+            var tb = T(text, Theme.Accent);
+            tb.Cursor = Cursors.Hand;
+            if (url != null) tb.MouseLeftButtonUp += (_, _) => App.OpenUrl(url);
+            tb.MouseEnter += (_, _) => tb.TextDecorations = TextDecorations.Underline;
+            tb.MouseLeave += (_, _) => tb.TextDecorations = null;
+            return tb;
+        }
+        var left = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+        left.Children.Add(T("Created by "));
+        left.Children.Add(Link("Pix/Nico", AppInfo.CreatorUrl));
+        left.Children.Add(T("   ·   "));
+        left.Children.Add(Link("A Person with a Creative Mind.", AppInfo.FriendUrl));
+        var right = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+        right.Children.Add(T("v" + AppInfo.Version + "   ·   "));
+        var check = Link("Check for updates", null);
+        check.MouseLeftButtonUp += (_, _) => _ = Updater.CheckAsync(manual: true);
+        right.Children.Add(check);
+        var g = new Grid { Margin = new Thickness(22, 0, 22, 0), Height = 38 };
+        g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        g.Children.Add(left);
+        Grid.SetColumn(right, 1); g.Children.Add(right);
+        return new Border { BorderBrush = Theme.Border, BorderThickness = new Thickness(0, 1, 0, 0), Child = g, Background = Theme.Bg };
     }
 
     static StackPanel TabContent(string glyph, string name, RadioButton owner)
@@ -87,12 +158,13 @@ sealed class SettingsWindow : ChromeWindow
     {
         _uploadList = null;
         _tiles.Clear(); _pics.Clear();
+        DisposeGallery();
+        _scroll.VerticalScrollBarVisibility = _tab == "Gallery" ? ScrollBarVisibility.Disabled : ScrollBarVisibility.Auto;
         _scroll.Content = _tab switch
         {
             "Upload" => UploadTab(),
             "Gallery" => GalleryTab(),
             "Effects" => EffectsTab(),
-            "Stats" => StatsTab(),
             "Account" => AccountTab(),
             "General" => GeneralTab(),
             "Recordings" => RecordingsTab(),
@@ -235,7 +307,7 @@ sealed class SettingsWindow : ChromeWindow
         var open = Theme.Pill("Open haunt.gg", () => App.OpenUrl("https://haunt.gg"));
         open.HorizontalAlignment = HorizontalAlignment.Left;
         steps.Add(open);
-        return Pad(Ui.Page(key, Theme.CardPanel(steps.ToArray())));
+        return Pad(Ui.Page(key, Theme.CardPanel(steps.ToArray()), StatsBlock()));
     }
 
     // ---- General -----------------------------------------------------------------------------------------------------------
@@ -281,7 +353,14 @@ sealed class SettingsWindow : ChromeWindow
             Ui.Toggle("Save a copy of screenshots", "Keep each screenshot in a folder on this PC. It's still uploaded and the link is still copied.", s.SaveScreenshots, v => { s.SaveScreenshots = v; folderText.Foreground = v ? Theme.Text : Theme.Muted; }),
             FolderRow(folderText, s.SaveFolder, v => { s.SaveFolder = v; folderText.Text = Pretty(v); }));
 
-        var startup = Theme.CardPanel(Ui.Toggle("Launch at login", "Start Poltergeist when you sign in to Windows.", s.LaunchAtLogin, v => s.LaunchAtLogin = v));
+        var startup = Theme.CardPanel(
+            Ui.Toggle("Launch at login", "Start Poltergeist when you sign in to Windows.", s.LaunchAtLogin, v => s.LaunchAtLogin = v),
+            Ui.Row("Settings menu", "A sidebar down the left like Haunt's dashboard, or tabs across the top.",
+                Ui.Combo(new[] { ("Sidebar", "side"), ("Top tabs", "top") }, s.SettingsLayout, v =>
+                {
+                    s.SettingsLayout = v;
+                    Dispatcher.BeginInvoke(() => { BuildLayout(); SelectTab("General"); });
+                }, 150)));
 
         // hotkeys
         var msg = Theme.Label("", 11, Theme.Warning);
@@ -678,9 +757,28 @@ sealed class SettingsWindow : ChromeWindow
         if (IsLoaded && _tab == "Gallery") Render();
     }
 
+    GalleryWeb? _gallery;
+    bool _webFailed;
+    string? _webFailMessage;
+
+    void DisposeGallery() { _gallery?.Dispose(); _gallery = null; }
+
+    List<WebEntry> GalleryEntries()
+    {
+        var fmt = App.Current.Settings.LinkFormat;
+        bool Video(string n) => new[] { ".mp4", ".webm", ".mov", ".mkv" }.Contains(Path.GetExtension(n).ToLowerInvariant());
+        if (_galleryMode == "pc")
+            return App.Current.History.Items.Select(h => new WebEntry(h.Name, h.Url, LinkFormat.Direct.Format(h.Url, h.Name), h.Date.ToString("MMM d, h:mm tt"), Video(h.Name), fmt.Format(h.Url, h.Name))).ToList();
+        return (_remote ?? new List<RemoteUpload>()).Select(u => new WebEntry(u.Name, u.Url, LinkFormat.Direct.Format(u.Url, u.Name),
+            u.Created is { } d ? d.ToString("MMM d, h:mm tt") : "", u.IsVideo, fmt.Format(u.Url, u.Name))).ToList();
+    }
+
     UIElement GalleryTab()
     {
-        var page = new StackPanel { Margin = new Thickness(0, 0, 0, 28) };
+        // header: which gallery, refresh; below it: the gallery itself (filling the rest of the window)
+        var page = new Grid();
+        page.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        page.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         var head = new Grid { Margin = new Thickness(0, 0, 0, 14) };
         head.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         head.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -694,68 +792,64 @@ sealed class SettingsWindow : ChromeWindow
         }
         head.Children.Add(seg);
         UIElement refresh = _galleryMode == "haunt"
-            ? Theme.Pill("Refresh", () => { _remote = null; Render(); }, false)
+            ? Theme.Pill("Refresh", () => { _remote = null; _remoteError = null; Render(); }, false)
             : Theme.Pill("Clear list", () => { App.Current.History.Clear(); Render(); }, false);
         Grid.SetColumn(refresh, 1);
         head.Children.Add(refresh);
         page.Children.Add(head);
 
-        if (_galleryMode == "pc") { page.Children.Add(LocalGallery()); return page; }
+        void Body(UIElement e) { Grid.SetRow(e, 1); page.Children.Add(e); }
 
-        if (string.IsNullOrEmpty(App.Current.ApiKey))
+        if (_galleryMode == "haunt")
         {
-            page.Children.Add(Ui.Banner("Add your API key in the Account tab to see your Haunt gallery."));
-            return page;
+            if (string.IsNullOrEmpty(App.Current.ApiKey)) { Body(Ui.Banner("Add your API key in the Account tab to see your Haunt gallery.")); return page; }
+            if (_remote == null && _remoteError == null)
+            {
+                LoadRemote();
+                Body(Theme.Label("Loading your gallery…", 13, Theme.Muted));
+                return page;
+            }
+            if (_remoteError != null)
+            {
+                var err = new StackPanel();
+                err.Children.Add(Ui.Banner(_remoteError));
+                var retry = Theme.Pill("Try again", () => { _remote = null; _remoteError = null; Render(); });
+                retry.HorizontalAlignment = HorizontalAlignment.Left; retry.Margin = new Thickness(0, 12, 0, 0);
+                err.Children.Add(retry);
+                Body(err);
+                return page;
+            }
         }
-        if (_remote == null && _remoteError == null)
-        {
-            LoadRemote();
-            page.Children.Add(Theme.Label("Loading your gallery…", 13, Theme.Muted));
-            return page;
-        }
-        if (_remoteError != null)
-        {
-            page.Children.Add(Ui.Banner(_remoteError));
-            var retry = Theme.Pill("Try again", () => { _remote = null; _remoteError = null; Render(); });
-            retry.HorizontalAlignment = HorizontalAlignment.Left; retry.Margin = new Thickness(0, 12, 0, 0);
-            page.Children.Add(retry);
-            return page;
-        }
-        if (_remote!.Count == 0) { page.Children.Add(Theme.Sub("Nothing on your image host yet.")); return page; }
 
-        page.Children.Add(Theme.Label($"{_remote.Count} file{(_remote.Count == 1 ? "" : "s")} on your image host", 13, Theme.Muted));
-        ((TextBlock)page.Children[^1]).Margin = new Thickness(0, 0, 0, 10);
-        var wrap = new WrapPanel();
-        foreach (var u in _remote)
+        var entries = GalleryEntries();
+        if (entries.Count == 0)
         {
-            var url = u.Url;
-            var direct = LinkFormat.Direct.Format(url, u.Name);
-            wrap.Children.Add(Tile(u.Name, u.Created ?? DateTime.MinValue, u.ThumbUrl ?? direct, u.IsVideo, url, direct,
-                () => App.Current.CopyText(App.Current.Settings.LinkFormat.Format(url, u.Name))));
+            Body(Theme.Sub(_galleryMode == "haunt" ? "Nothing on your image host yet." : "Uploads you make from this PC show up here."));
+            return page;
         }
-        wrap.Margin = new Thickness(0, 0, -12, 0);
-        page.Children.Add(wrap);
+
+        if (!_webFailed)
+        {
+            _gallery = new GalleryWeb(entries, text => App.Current.CopyText(text), url => App.OpenUrl(url),
+                msg => Dispatcher.BeginInvoke(() => { _webFailed = true; _webFailMessage = msg; if (IsLoaded && _tab == "Gallery") Render(); }));
+            Body(_gallery);
+            return page;
+        }
+
+        // Edge's browser component isn't available: plain tiles (pictures may not load, the host only talks to browsers)
+        var fallback = new StackPanel();
+        fallback.Children.Add(Ui.Banner("Previews need Microsoft's WebView2 (it comes with Windows 11 and Edge). " + (_webFailMessage ?? "")));
+        var wrap = new WrapPanel { Margin = new Thickness(0, 14, -12, 0) };
+        foreach (var e in entries)
+        {
+            var entry = e;
+            wrap.Children.Add(Tile(entry.Name, DateTime.MinValue, entry.Direct, entry.Video, entry.Url, entry.Direct, () => App.Current.CopyText(entry.CopyText)));
+        }
+        fallback.Children.Add(wrap);
+        _scroll.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
+        Body(fallback);
         Dispatcher.BeginInvoke(FitTiles, System.Windows.Threading.DispatcherPriority.Loaded);
         return page;
-    }
-
-    UIElement LocalGallery()
-    {
-        var items = App.Current.History.Items.ToList();
-        if (items.Count == 0)
-            return Theme.CardPanel(Theme.Title("Nothing here yet"), Theme.Sub("Everything you upload from this PC shows up here with a preview."));
-        var wrap = new WrapPanel();
-        foreach (var h in items)
-        {
-            var item = h;
-            var direct = LinkFormat.Direct.Format(item.Url, item.Name);
-            bool video = new[] { ".mp4", ".webm", ".mov", ".mkv" }.Contains(Path.GetExtension(item.Name).ToLowerInvariant());
-            wrap.Children.Add(Tile(item.Name, item.Date, direct, video, item.Url, direct,
-                () => App.Current.CopyText(App.Current.Settings.LinkFormat.Format(item.Url, item.Name))));
-        }
-        wrap.Margin = new Thickness(0, 0, -12, 0);
-        Dispatcher.BeginInvoke(FitTiles, System.Windows.Threading.DispatcherPriority.Loaded);
-        return wrap;
     }
 
     UIElement Tile(string name, DateTime when, string thumbUrl, bool video, string openUrl, string directUrl, Action copy)
@@ -960,7 +1054,7 @@ sealed class SettingsWindow : ChromeWindow
 
     // ---- Stats -------------------------------------------------------------------------------------------------------------
 
-    UIElement StatsTab()
+    UIElement StatsBlock()
     {
         var s = S;
         var t = TimeSpan.FromSeconds(s.TotalSeconds);
@@ -983,7 +1077,10 @@ sealed class SettingsWindow : ChromeWindow
         }) grid.Children.Add(Stat(l, v));
         var hint = Theme.Sub("Counted on this PC only. Time adds up while Poltergeist runs in the background.");
         hint.Margin = new Thickness(0, 4, 0, 0);
-        var page = new StackPanel { Margin = new Thickness(0, 0, 0, 28) };
+        var page = new StackPanel();
+        var heading = Theme.Label("Stats", 17, Theme.Text, FontWeights.SemiBold);
+        heading.Margin = new Thickness(0, 6, 0, 12);
+        page.Children.Add(heading);
         page.Children.Add(grid);
         page.Children.Add(hint);
         return page;

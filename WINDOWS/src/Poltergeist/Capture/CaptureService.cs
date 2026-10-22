@@ -15,7 +15,7 @@ static class CaptureService
     /// Lets the user choose an area or a window. With <paramref name="freeze"/> the screen is stilled and dimmed first, and the
     /// frozen picture comes back with the rectangle so the result is exactly what they saw.
     /// </summary>
-    public static async Task<Picked?> PickAsync(CaptureMode mode, bool freeze, string? hint = null)
+    public static async Task<Picked?> PickAsync(CaptureMode mode, bool freeze, string? hint = null, string? glyph = null)
     {
         var virt = ScreenGrab.VirtualBounds;
         var windows = mode == CaptureMode.Window ? Native.TopLevelWindows() : new List<Native.WindowInfo>();
@@ -33,7 +33,7 @@ static class CaptureService
                 using var part = Imaging.Crop(frozen, new Rectangle(screen.Bounds.X - virt.X, screen.Bounds.Y - virt.Y, screen.Bounds.Width, screen.Bounds.Height));
                 holder = new BitmapSourceHolder(Imaging.ToBitmapSource(part));
             }
-            var o = new SelectionOverlay(screen.Bounds, holder?.Source, freeze, kind, windows, hint);
+            var o = new SelectionOverlay(screen.Bounds, holder?.Source, freeze, kind, windows, hint, glyph);
             o.Done += r => tcs.TrySetResult(r);
             overlays.Add(o);
         }
@@ -49,7 +49,7 @@ static class CaptureService
 
     public sealed record Result(string? File, bool Cancelled, string? Error);
 
-    public static async Task<Result> RunAsync(CaptureMode mode, bool freeze)
+    public static async Task<Result> RunAsync(CaptureMode mode, bool freeze, string? hint = null, string? glyph = null)
     {
         try
         {
@@ -61,7 +61,7 @@ static class CaptureService
             }
             else
             {
-                var picked = await PickAsync(mode, freeze);
+                var picked = await PickAsync(mode, freeze, hint, glyph);
                 if (picked == null) return new Result(null, true, null);
                 if (picked.Frozen != null)
                 {

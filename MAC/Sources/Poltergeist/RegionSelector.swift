@@ -48,7 +48,7 @@ private final class SelectionView: NSView {
         dim.fill()
 
         guard let r = selection else {
-            drawLabel("Drag to select an area  ·  Esc to cancel", at: NSPoint(x: bounds.midX, y: bounds.midY))
+            drawLabel(ActionHint.text.isEmpty ? "Drag to select an area  ·  Esc to cancel" : ActionHint.text, at: NSPoint(x: bounds.midX, y: bounds.midY))
             return
         }
         NSColor(Theme.accent).setStroke()

@@ -59,6 +59,8 @@ sealed class RecordingControls : Window
         stopEdit.ToolTip = "Stop and open the video editor";
         var row = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
         row.Children.Add(new Border { Margin = new Thickness(6, 0, 0, 0), Child = _dot });
+        var what = new TextBlock { Text = rec.Label, FontSize = 12, Foreground = Theme.Muted, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 2, 0) };
+        row.Children.Add(what);
         row.Children.Add(_time);
         row.Children.Add(_pause);
         row.Children.Add(_mic);

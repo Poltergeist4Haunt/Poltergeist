@@ -101,6 +101,9 @@ public partial class App : Application
 
         if (string.IsNullOrEmpty(_apiKey)) ShowSettings("Account");
         foreach (var f in e.Args.Where(File.Exists)) UploadFile(f);
+
+        // A few seconds after launch, ask the website whether there's a newer version.
+        _ = Task.Delay(4000).ContinueWith(_ => Dispatcher.BeginInvoke(() => { if (Recorder == null) _ = Updater.CheckAsync(manual: false); }));
     }
 
     void TrimMemory()
@@ -164,8 +167,10 @@ public partial class App : Application
         _capturing = true;
         try
         {
-            var r = await CaptureService.RunAsync(mode, Settings.FreezeOnCapture);
+            var (glyph, what, hint) = Describe(mode, edit || Settings.EditBeforeUpload);
+            var r = await CaptureService.RunAsync(mode, Settings.FreezeOnCapture, hint, glyph);
             if (r.Cancelled) return;
+            if (mode == CaptureMode.Fullscreen && r.File != null) ActionBadge.Show(glyph, what, 1500);       // no overlay for this one, so say it afterwards
             if (r.Error != null || r.File == null) { ReportProblem("Screenshot", r.Error ?? "Nothing was captured."); return; }
 
             Sounds.Play(Settings.CaptureSound);
@@ -177,6 +182,16 @@ public partial class App : Application
         }
         finally { _capturing = false; }
     }
+
+    /// <summary>What the user is doing, in words and an icon (for the on-screen badge and the selection hint).</summary>
+    static (string Glyph, string What, string Hint) Describe(CaptureMode mode, bool edit) => mode switch
+    {
+        CaptureMode.Area when edit => (ActionBadge.Edit, "Screenshot of an area, then editing", "Screenshot + editor  ·  drag to select  ·  Esc to cancel"),
+        CaptureMode.Area => (ActionBadge.Camera, "Taking a screenshot of an area", "Taking a screenshot  ·  drag to select  ·  Esc to cancel"),
+        CaptureMode.Window when edit => (ActionBadge.Edit, "Screenshot of a window, then editing", "Screenshot + editor  ·  click a window  ·  Esc to cancel"),
+        CaptureMode.Window => (ActionBadge.Window_, "Taking a screenshot of a window", "Taking a screenshot  ·  click a window  ·  Esc to cancel"),
+        _ => (ActionBadge.Screen, edit ? "Full-screen screenshot, then editing" : "Took a full-screen screenshot", ""),
+    };
 
     public void OpenImageEditor(string file)
     {
@@ -357,18 +372,21 @@ public partial class App : Application
         try
         {
             if (!Ffmpeg.Available && !await FfmpegSetup.OfferInstallAsync()) return;
+            string what = mode switch { CaptureMode.Area => "Recording an area", CaptureMode.Window => "Recording a window", _ => "Recording full screen" };
             System.Drawing.Rectangle region;
             if (mode == CaptureMode.Fullscreen) region = System.Windows.Forms.Screen.FromPoint(System.Windows.Forms.Cursor.Position).Bounds;
             else
             {
                 var picked = await CaptureService.PickAsync(mode, freeze: true,
-                    hint: mode == CaptureMode.Window ? "Click the window to record  ·  Esc to cancel" : "Drag the area to record  ·  Esc to cancel");
+                    hint: mode == CaptureMode.Window ? "Recording a window  ·  click it  ·  Esc to cancel" : "Recording an area  ·  drag to select  ·  Esc to cancel",
+                    glyph: ActionBadge.Record);
                 if (picked == null) return;
                 picked.Frozen?.Dispose();
                 region = picked.Bounds;
             }
             await Task.Delay(50);                              // the overlay needs a moment to disappear
-            var rec = new ScreenRecorder(region, Settings);
+            var rec = new ScreenRecorder(region, Settings) { Label = what };
+            if (mode == CaptureMode.Fullscreen) ActionBadge.Show(ActionBadge.Record, what, 2200, recording: true);
             Recorder = rec;
             Tray.Recording = true;
             rec.Finished += (file, error) => OnRecordingFinished(file, error, rec.EditRequested);

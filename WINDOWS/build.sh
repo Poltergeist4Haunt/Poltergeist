@@ -10,6 +10,7 @@ rm -rf dist/Poltergeist dist/Poltergeist-win-x64.zip
 dotnet publish src/Poltergeist -c Release -r win-x64 --self-contained true \
   -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true \
   -p:DebugType=None -p:DebugSymbols=false -o dist/Poltergeist
+rm -f dist/Poltergeist/*.xml
 cp README.md dist/Poltergeist/README.txt
 (cd dist && zip -qr Poltergeist-win-x64.zip Poltergeist)
 echo "Done: $(pwd)/dist/Poltergeist-win-x64.zip"

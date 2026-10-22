@@ -53,6 +53,8 @@ final class ScreenRecorder: ObservableObject {
 
     var isActive: Bool { phase != .idle }
     var isRecording: Bool { phase == .recording || phase == .paused }
+    /// "Recording an area" etc., shown on the control bar.
+    @Published var modeLabel = "Recording"
 
     /// Menu-bar text while recording ("" when finished).
     var onTick: ((String) -> Void)?
@@ -90,12 +92,19 @@ final class ScreenRecorder: ObservableObject {
             return
         }
         switch mode {
+        case .fullscreen: modeLabel = "Recording full screen"
+        case .area: modeLabel = "Recording an area"
+        case .window: modeLabel = "Recording a window"
+        }
+        switch mode {
         case .fullscreen:
+            ActionBadge.shared.show(symbol: "record.circle", text: "Recording full screen", seconds: 2.2, recording: true)
             let mouse = NSEvent.mouseLocation
             guard let screen = NSScreen.screens.first(where: { $0.frame.contains(mouse) }) ?? NSScreen.main else { return }
             begin(rect: screen.frame, screen: screen, showOutline: false)
         case .area:
             phase = .selecting
+            ActionHint.text = "🔴  Recording an area  ·  drag to select  ·  Esc to cancel"
             RegionSelector.select { [weak self] rect, screen in
                 guard let self else { return }
                 guard let rect, let screen else { self.phase = .idle; return }
@@ -103,6 +112,7 @@ final class ScreenRecorder: ObservableObject {
             }
         case .window:
             phase = .selecting
+            ActionHint.text = "🔴  Recording a window  ·  click it  ·  Esc to cancel"
             WindowSelector.select { [weak self] picked, screen in
                 guard let self else { return }
                 guard let picked, let screen else { self.phase = .idle; return }
@@ -148,6 +158,7 @@ final class ScreenRecorder: ObservableObject {
     // MARK: Starting
 
     private func begin(rect: NSRect, screen: NSScreen, showOutline: Bool, windowID: CGWindowID? = nil) {
+        ActionHint.text = ""
         phase = .starting
         let settings = Settings.shared
         let scale = screen.backingScaleFactor
@@ -245,7 +256,7 @@ final class ScreenRecorder: ObservableObject {
             outline = o
         }
 
-        let size = NSSize(width: 500, height: 52)
+        let size = NSSize(width: 620, height: 52)
         let host = NSHostingView(rootView: RecorderControls(recorder: self))
         host.frame = NSRect(origin: .zero, size: size)
         let p = FloatingPanel(contentRect: host.frame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
@@ -292,6 +303,7 @@ private struct RecorderControls: View {
         HStack(spacing: 10) {
             HStack(spacing: 7) {
                 Circle().fill(recorder.phase == .paused ? Theme.warning : Color(hex: 0xff4d4d)).frame(width: 9, height: 9)
+                Text(recorder.modeLabel).font(.system(size: 11)).foregroundColor(Theme.muted)
                 Text(time).font(.system(size: 14, weight: .semibold, design: .monospaced)).foregroundColor(Theme.text)
                     .frame(width: 52, alignment: .leading)
             }
@@ -310,7 +322,7 @@ private struct RecorderControls: View {
         }
         .labelStyle(CompactLabelStyle())
         .padding(.horizontal, 12)
-        .frame(width: 500, height: 52)
+        .frame(width: 620, height: 52)
         .background(Theme.card)
         .overlay(RoundedRectangle(cornerRadius: 26).stroke(Theme.border))
         .clipShape(RoundedRectangle(cornerRadius: 26))

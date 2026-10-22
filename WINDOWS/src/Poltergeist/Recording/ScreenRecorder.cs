@@ -41,6 +41,9 @@ public sealed class ScreenRecorder
 
     bool _paused, _stopping, _started;
 
+    /// <summary>"Recording an area" etc., shown on the control bar.</summary>
+    public string Label { get; init; } = "Recording";
+
     public event Action<string?, string?>? Finished;     // (file, error); both null = discarded
 
     public bool IsPaused => _paused;

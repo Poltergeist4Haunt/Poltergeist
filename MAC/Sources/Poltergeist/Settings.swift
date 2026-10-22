@@ -138,6 +138,8 @@ final class Settings: ObservableObject {
     @Published var successSound: String { didSet { d.set(successSound, forKey: "successSound") } }
     @Published var errorSound: String { didSet { d.set(errorSound, forKey: "errorSound") } }
     /// Played when a screenshot is taken. A system sound, "None", or the path of your own file.
+    /// Where the settings menu sits: "side" (a sidebar, like the Haunt dashboard) or "top" (a row of tabs).
+    @Published var settingsLayout: String { didSet { d.set(settingsLayout, forKey: "settingsLayout") } }
     @Published var captureSound: String { didSet { d.set(captureSound, forKey: "captureSound") } }
 
     // Image effects, applied to every screenshot (like ShareX's image effects)
@@ -219,6 +221,7 @@ final class Settings: ObservableObject {
         historyClear = d.string(forKey: "historyClear") ?? "never"
         successSound = d.string(forKey: "successSound") ?? (soundsOn ? "Glass" : Sounds.none)
         errorSound = d.string(forKey: "errorSound") ?? (soundsOn ? "Basso" : Sounds.none)
+        settingsLayout = d.string(forKey: "settingsLayout") ?? "side"
         captureSound = d.string(forKey: "captureSound") ?? Sounds.none
         fxOn = d.object(forKey: "fxOn") as? Bool ?? false
         fxRound = d.object(forKey: "fxRound") as? Bool ?? false

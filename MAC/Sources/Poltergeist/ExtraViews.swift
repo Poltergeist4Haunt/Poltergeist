@@ -1,4 +1,5 @@
 import SwiftUI
+import WebKit
 import AVKit
 import AVFoundation
 import AppKit
@@ -43,71 +44,54 @@ struct SoundPicker: View {
     }
 }
 
-// MARK: - Thumbnails for the gallery
-
-@MainActor
-enum Thumbs {
-    private static var cache: [String: NSImage] = [:]
-    private static let session: URLSession = {
-        let c = URLSessionConfiguration.ephemeral
-        c.httpAdditionalHeaders = [
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
-            "Accept": "image/avif,image/webp,image/png,image/*,*/*;q=0.8",
-        ]
-        c.timeoutIntervalForRequest = 20
-        return URLSession(configuration: c)
-    }()
-
-    /// A picture, or one frame of a video. `small` keeps grid thumbnails light.
-    static func load(_ urlString: String, video: Bool, small: Bool = true) async -> NSImage? {
-        let key = urlString + (small ? "#s" : "#l")
-        if let hit = cache[key] { return hit }
-        guard let url = URL(string: urlString) else { return nil }
-        var result: NSImage?
-        if video {
-            let gen = AVAssetImageGenerator(asset: AVURLAsset(url: url))
-            gen.appliesPreferredTrackTransform = true
-            gen.maximumSize = CGSize(width: small ? 360 : 1280, height: small ? 360 : 1280)
-            if let cg = try? await gen.image(at: CMTime(seconds: 1, preferredTimescale: 600)).image {
-                result = NSImage(cgImage: cg, size: .zero)
-            }
-        } else if let (data, _) = try? await session.data(from: url) {
-            result = NSImage(data: data)
-        }
-        if let result { cache[key] = result }
-        return result
-    }
-}
-
-private struct RemoteThumb: View {
-    let url: String
-    let video: Bool
-    var small = true
-    @State private var image: NSImage?
-
-    var body: some View {
-        ZStack {
-            Color.white.opacity(0.06)
-            if let image {
-                Image(nsImage: image).resizable().scaledToFill()
-            } else {
-                Image(systemName: video ? "video" : "photo").font(.system(size: 24)).foregroundColor(Theme.muted)
-            }
-        }
-        .task(id: url) { image = await Thumbs.load(url, video: video, small: small) }
-    }
-}
-
 // MARK: - Gallery
+//
+// Haunt's image host only hands its files to real browsers, so the gallery is a web page shown in an embedded WebKit view:
+// that's what makes the previews (and video previews) load, and it gives a big viewer for free.
 
-private struct GalleryEntry: Identifiable {
-    let id: String
-    let name: String
-    let url: String            // the link people share
-    let direct: String         // the file itself, with an extension
-    let thumb: String
-    let date: Date?
-    let video: Bool
+private struct WebEntry: Encodable {
+    let n: String      // name
+    let u: String      // the link people share
+    let d: String      // the file itself
+    let t: String      // date
+    let v: Bool        // video
+    let c: String      // text to copy
+}
+
+private struct GalleryWebView: NSViewRepresentable {
+    let html: String
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeNSView(context: Context) -> WKWebView {
+        let cfg = WKWebViewConfiguration()
+        cfg.userContentController.add(context.coordinator, name: "p")
+        let web = WKWebView(frame: .zero, configuration: cfg)
+        web.setValue(false, forKey: "drawsBackground")
+        web.navigationDelegate = context.coordinator
+        web.loadHTMLString(html, baseURL: nil)
+        context.coordinator.loaded = html
+        return web
+    }
+
+    func updateNSView(_ web: WKWebView, context: Context) {
+        if context.coordinator.loaded != html {
+            context.coordinator.loaded = html
+            web.loadHTMLString(html, baseURL: nil)
+        }
+    }
+
+    final class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
+        var loaded = ""
+        func userContentController(_ c: WKUserContentController, didReceive message: WKScriptMessage) {
+            guard let body = message.body as? [String: String], let a = body["a"], let v = body["v"] else { return }
+            if a == "copy" { UploadManager.copy(v) }
+            else if a == "open", let url = URL(string: v) { NSWorkspace.shared.open(url) }
+        }
+        func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+            decisionHandler(action.navigationType == .other ? .allow : .cancel)       // links open in the real browser, not in here
+        }
+    }
 }
 
 struct GalleryView: View {
@@ -117,21 +101,23 @@ struct GalleryView: View {
     @State private var remote: [RemoteUpload]?
     @State private var error: String?
     @State private var loading = false
-    @State private var preview: GalleryEntry?
 
     private func isVideoName(_ n: String) -> Bool { ["mp4", "webm", "mov", "mkv"].contains((n as NSString).pathExtension.lowercased()) }
 
-    private var entries: [GalleryEntry] {
+    private var entries: [WebEntry] {
+        let fmt = settings.linkFormat
+        let day = DateFormatter(); day.dateFormat = "MMM d, h:mm a"
         if mode == "pc" {
-            return history.items.map {
-                let direct = LinkFormat.direct.format(url: $0.url, name: $0.name)
-                return GalleryEntry(id: $0.id.uuidString, name: $0.name, url: $0.url, direct: direct, thumb: direct, date: $0.date, video: isVideoName($0.name))
-            }
+            return history.items.map { WebEntry(n: $0.name, u: $0.url, d: LinkFormat.direct.format(url: $0.url, name: $0.name), t: day.string(from: $0.date),
+                                                v: isVideoName($0.name), c: fmt.format(url: $0.url, name: $0.name)) }
         }
-        return (remote ?? []).map {
-            let direct = LinkFormat.direct.format(url: $0.url, name: $0.name)
-            return GalleryEntry(id: $0.id, name: $0.name, url: $0.url, direct: direct, thumb: $0.thumbURL ?? direct, date: $0.created, video: $0.isVideo)
-        }
+        return (remote ?? []).map { WebEntry(n: $0.name, u: $0.url, d: LinkFormat.direct.format(url: $0.url, name: $0.name), t: $0.created.map { day.string(from: $0) } ?? "",
+                                             v: $0.isVideo, c: fmt.format(url: $0.url, name: $0.name)) }
+    }
+
+    private var html: String {
+        let json = (try? JSONEncoder().encode(entries)).flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
+        return Self.template.replacingOccurrences(of: "/*DATA*/[]", with: json.replacingOccurrences(of: "</", with: "<\\/"))
     }
 
     var body: some View {
@@ -150,54 +136,26 @@ struct GalleryView: View {
         }
         .task { if mode == "haunt" && remote == nil && error == nil { await load() } }
         .onChange(of: mode) { m in if m == "haunt" && remote == nil && error == nil { Task { await load() } } }
-        .sheet(item: $preview) { PreviewSheet(entry: $0) }
     }
 
     @ViewBuilder private var content: some View {
         if mode == "haunt" && settings.apiKey.isEmpty {
             Banner(text: "Add your API key in the Account tab to see your Haunt gallery.")
+            Spacer()
         } else if mode == "haunt" && loading && remote == nil {
             Text("Loading your gallery…").font(.system(size: 13)).foregroundColor(Theme.muted)
+            Spacer()
         } else if mode == "haunt", let error {
             Banner(text: error)
             Button("Try again") { self.error = nil; Task { await load() } }.buttonStyle(PillButtonStyle())
+            Spacer()
         } else if entries.isEmpty {
-            Card {
-                Text(mode == "haunt" ? "Nothing on your image host yet." : "Nothing here yet").font(.system(size: 15, weight: .semibold)).foregroundColor(Theme.text)
-                Text("Everything you upload shows up here with a preview.").font(.system(size: 12)).foregroundColor(Theme.muted)
-            }
-        } else {
-            Text("\(entries.count) file\(entries.count == 1 ? "" : "s")" + (mode == "haunt" ? " on your image host" : " uploaded from this Mac"))
+            Text(mode == "haunt" ? "Nothing on your image host yet." : "Uploads you make from this Mac show up here.")
                 .font(.system(size: 13)).foregroundColor(Theme.muted)
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 176), spacing: 12, alignment: .top)], spacing: 12) {
-                ForEach(entries) { tile($0) }
-            }
+            Spacer()
+        } else {
+            GalleryWebView(html: html).frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-    }
-
-    private func tile(_ e: GalleryEntry) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            RemoteThumb(url: e.thumb, video: e.video)
-                .frame(height: 112).frame(maxWidth: .infinity)
-                .clipShape(RoundedRectangle(cornerRadius: 10))
-                .overlay(alignment: .center) {
-                    if e.video { Image(systemName: "play.circle.fill").font(.system(size: 26)).foregroundColor(.white.opacity(0.85)).shadow(radius: 4) }
-                }
-                .contentShape(Rectangle())
-                .onTapGesture { preview = e }
-                .help("Click for a bigger preview")
-            Text(e.name).font(.system(size: 12, weight: .medium)).foregroundColor(Theme.text).lineLimit(1).truncationMode(.middle)
-            Text(e.date.map { $0.formatted(date: .abbreviated, time: .shortened) } ?? " ").font(.system(size: 11)).foregroundColor(Theme.muted)
-            HStack(spacing: 6) {
-                Button("Copy link") { UploadManager.copy(settings.linkFormat.format(url: e.url, name: e.name)) }.buttonStyle(PillButtonStyle())
-                Button("Open") { if let u = URL(string: e.url) { NSWorkspace.shared.open(u) } }.buttonStyle(PillButtonStyle(prominent: false))
-            }
-            .font(.system(size: 11))
-        }
-        .padding(10)
-        .background(Theme.card)
-        .overlay(RoundedRectangle(cornerRadius: 16).stroke(Theme.border))
-        .clipShape(RoundedRectangle(cornerRadius: 16))
     }
 
     private func load() async {
@@ -207,42 +165,70 @@ struct GalleryView: View {
         do { remote = try await HauntAPI.listUploads() }
         catch { self.error = error.localizedDescription }
     }
-}
 
-/// A bigger look at one picture or video.
-private struct PreviewSheet: View {
-    let entry: GalleryEntry
-    @Environment(\.dismiss) private var dismiss
-    @State private var image: NSImage?
-    @State private var player: AVPlayer?
-
-    var body: some View {
-        VStack(spacing: 0) {
-            ZStack {
-                Color.black
-                if entry.video {
-                    if let player { VideoPlayer(player: player) } else { ProgressView() }
-                } else if let image {
-                    Image(nsImage: image).resizable().scaledToFit().padding(12)
-                } else { ProgressView() }
-            }
-            HStack(spacing: 10) {
-                Text(entry.name).font(.system(size: 13, weight: .medium)).foregroundColor(Theme.text).lineLimit(1)
-                Spacer()
-                Button("Copy link") { UploadManager.copy(Settings.shared.linkFormat.format(url: entry.url, name: entry.name)) }.buttonStyle(PillButtonStyle())
-                Button("Open in browser") { if let u = URL(string: entry.url) { NSWorkspace.shared.open(u) } }.buttonStyle(PillButtonStyle(prominent: false))
-                Button("Close") { dismiss() }.buttonStyle(PillButtonStyle(prominent: false)).keyboardShortcut(.cancelAction)
-            }
-            .padding(14).background(Theme.card)
-        }
-        .frame(minWidth: 760, minHeight: 540)
-        .task {
-            if entry.video, let u = URL(string: entry.direct) { let p = AVPlayer(url: u); player = p; p.play() }
-            else { image = await Thumbs.load(entry.direct, video: false, small: false) }
-        }
-        .onDisappear { player?.pause() }
-        .preferredColorScheme(.dark)
-    }
+    private static let template = #"""
+<!doctype html><html><head><meta charset="utf-8"><meta name="referrer" content="no-referrer">
+<style>
+:root{--bg:#090909;--card:#0f0f0f;--line:rgba(255,255,255,.08);--accent:#f27db3;--soft:rgba(242,125,179,.14);--aline:rgba(242,125,179,.4);--text:#f2f2f2;--muted:#8a8a8a}
+*{box-sizing:border-box;margin:0}
+html,body{background:transparent;color:var(--text);font-family:-apple-system,"SF Pro Text",system-ui,sans-serif;font-size:13px;height:100%}
+body{overflow-y:auto;padding:2px 6px 24px 2px}
+::-webkit-scrollbar{width:8px}::-webkit-scrollbar-thumb{background:rgba(255,255,255,.18);border-radius:4px}
+.count{color:var(--muted);margin:0 0 12px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(176px,1fr));gap:12px}
+.tile{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:10px;min-width:0}
+.pic{position:relative;height:112px;border-radius:10px;overflow:hidden;background:rgba(255,255,255,.06);cursor:pointer;display:grid;place-items:center;color:var(--muted)}
+.pic img,.pic video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.pic .play{position:absolute;right:8px;bottom:8px;width:26px;height:26px;border-radius:50%;background:rgba(0,0,0,.6);display:grid;place-items:center;font-size:10px;color:#fff;z-index:2;font-style:normal}
+.name{font-weight:600;margin-top:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.date{color:var(--muted);font-size:11px;margin:1px 0 8px}
+.row{display:flex;gap:6px}
+button{font-family:inherit;font-weight:600;font-size:11.5px;border-radius:999px;padding:5px 11px;cursor:pointer;border:1px solid var(--aline);background:var(--soft);color:var(--accent)}
+button:hover{background:rgba(242,125,179,.24)}
+button.g{border-color:var(--line);background:rgba(255,255,255,.05);color:var(--text)}button.g:hover{background:rgba(255,255,255,.1)}
+.empty{color:var(--muted)}
+.lb{position:fixed;inset:0;background:rgba(0,0,0,.84);display:none;flex-direction:column;z-index:10}
+.lb.on{display:flex}
+.stage{flex:1;display:grid;place-items:center;min-height:0;padding:16px}
+.stage img,.stage video{max-width:100%;max-height:100%;border-radius:10px}
+.bar{display:flex;align-items:center;gap:8px;padding:12px 16px;background:var(--card);border-top:1px solid var(--line)}
+.bar b{margin-right:auto;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+</style></head><body>
+<div class="count" id="count"></div><div class="grid" id="grid"></div>
+<div class="lb" id="lb"><div class="stage" id="stage"></div><div class="bar"><b id="lbname"></b><button id="lbcopy">Copy link</button><button class="g" id="lbopen">Open in browser</button><button class="g" id="lbclose">Close</button></div></div>
+<script>
+const D=/*DATA*/[];
+const post=(a,v)=>webkit.messageHandlers.p.postMessage({a,v});
+const grid=document.getElementById('grid');
+document.getElementById('count').textContent=D.length?D.length+' file'+(D.length==1?'':'s'):'';
+if(!D.length){grid.innerHTML='<div class="empty">Nothing here yet.</div>'}
+D.forEach(e=>{
+  const t=document.createElement('div');t.className='tile';
+  const pic=document.createElement('div');pic.className='pic';pic.title='Click for a bigger preview';
+  const fallback=document.createElement('span');fallback.textContent=e.v?'\u25B6':'\uD83D\uDDBC';pic.appendChild(fallback);
+  if(e.v){const v=document.createElement('video');v.muted=true;v.preload='metadata';v.playsInline=true;v.src=e.d+'#t=0.5';v.onloadeddata=()=>{fallback.remove()};pic.appendChild(v);const p=document.createElement('i');p.className='play';p.textContent='\u25B6';pic.appendChild(p)}
+  else{const i=document.createElement('img');i.loading='lazy';i.referrerPolicy='no-referrer';i.src=e.d;i.onload=()=>fallback.remove();i.onerror=()=>{i.remove()};pic.appendChild(i)}
+  pic.onclick=()=>show(e);
+  t.appendChild(pic);
+  const n=document.createElement('div');n.className='name';n.textContent=e.n;n.title=e.n;t.appendChild(n);
+  const d=document.createElement('div');d.className='date';d.textContent=e.t||'\u00a0';t.appendChild(d);
+  const r=document.createElement('div');r.className='row';
+  const c=document.createElement('button');c.textContent='Copy link';c.onclick=()=>{post('copy',e.c);c.textContent='Copied \u2713';setTimeout(()=>c.textContent='Copy link',1400)};
+  const o=document.createElement('button');o.className='g';o.textContent='Open';o.onclick=()=>post('open',e.u);
+  r.appendChild(c);r.appendChild(o);t.appendChild(r);grid.appendChild(t);
+});
+const lb=document.getElementById('lb'),stage=document.getElementById('stage');let cur=null;
+function show(e){cur=e;stage.innerHTML='';let m;
+  if(e.v){m=document.createElement('video');m.controls=true;m.autoplay=true;m.src=e.d}else{m=document.createElement('img');m.referrerPolicy='no-referrer';m.src=e.d}
+  stage.appendChild(m);document.getElementById('lbname').textContent=e.n;lb.classList.add('on')}
+function hide(){lb.classList.remove('on');stage.innerHTML=''}
+document.getElementById('lbclose').onclick=hide;
+document.getElementById('lbcopy').onclick=()=>{if(cur)post('copy',cur.c)};
+document.getElementById('lbopen').onclick=()=>{if(cur)post('open',cur.u)};
+lb.onclick=ev=>{if(ev.target===lb||ev.target===stage)hide()};
+addEventListener('keydown',ev=>{if(ev.key==='Escape')hide()});
+</script></body></html>
+"""#
 }
 
 // MARK: - Effects

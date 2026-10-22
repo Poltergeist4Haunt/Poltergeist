@@ -17,3 +17,7 @@ mac: `cd MAC && ./build.sh`, app ends up in `MAC/build`
 windows: `cd WINDOWS && ./build.sh` (or `build.ps1` on windows), zip ends up in `WINDOWS/dist`
 
 you need your own haunt api key to upload, grab one from the dashboard and paste it in settings.
+
+---
+
+created by [Pix/Nico](https://haunt.gg/pix) · [A Person with a Creative Mind.](https://haunt.gg/SandMan)

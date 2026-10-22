@@ -54,6 +54,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         NSApp.servicesProvider = self
         UploadManager.shared.onStatus = { [weak self] text in self?.statusItem.button?.title = text }
         installEditMenu()
+        Task { try? await Task.sleep(nanoseconds: 4_000_000_000); if !ScreenRecorder.shared.isRecording { await Updater.check(manual: false) } }
         Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { _ in Settings.shared.totalSeconds += 30 }   // for the Stats page
         registerHotKeys()
         NotificationCenter.default.addObserver(forName: .hotkeysChanged, object: nil, queue: .main) { [weak self] _ in
@@ -217,7 +218,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     // MARK: Capture / upload
 
     private func capture(_ mode: CaptureMode, edit: Bool = false) {
+        let editing = edit || Settings.shared.editBeforeUpload
+        switch mode {
+        case .area:
+            ActionHint.text = editing ? "✏️  Screenshot + editor  ·  drag to select  ·  Esc to cancel" : "📷  Taking a screenshot  ·  drag to select  ·  Esc to cancel"
+        case .window:
+            ActionBadge.shared.show(symbol: editing ? "pencil.and.outline" : "macwindow", text: editing ? "Screenshot of a window, then editing" : "Taking a screenshot of a window", seconds: 2.4)
+        case .fullscreen:
+            ActionBadge.shared.show(symbol: editing ? "pencil.and.outline" : "camera.fill", text: editing ? "Full-screen screenshot, then editing" : "Taking a full-screen screenshot", seconds: 1.6)
+        }
         Task { @MainActor in
+            defer { ActionHint.text = "" }
             switch await Capture.run(mode) {
             case .file(let url):
                 let st = Settings.shared

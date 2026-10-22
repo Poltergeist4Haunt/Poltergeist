@@ -4,14 +4,13 @@ import Carbon.HIToolbox
 import UniformTypeIdentifiers
 
 enum SettingsTab: String, CaseIterable, Identifiable {
-    case upload = "Upload", gallery = "Gallery", account = "Account", general = "General", recordings = "Recordings", effects = "Effects", embed = "Embed", domain = "Domain", stats = "Stats"
+    case upload = "Upload", gallery = "Gallery", account = "Account", general = "General", recordings = "Recordings", effects = "Effects", embed = "Embed", domain = "Domain"
     var id: String { rawValue }
     var icon: String {
         switch self {
         case .upload: return "arrow.up.circle.fill"
         case .gallery: return "photo.on.rectangle"
         case .effects: return "wand.and.stars"
-        case .stats: return "chart.bar.fill"
         case .account: return "key.fill"
         case .general: return "gearshape.fill"
         case .recordings: return "record.circle"
@@ -22,30 +21,60 @@ enum SettingsTab: String, CaseIterable, Identifiable {
 }
 
 struct SettingsView: View {
+    @ObservedObject private var settings = Settings.shared
     @State private var tab: SettingsTab = Settings.shared.apiKey.isEmpty ? .account : .upload
 
     var body: some View {
         VStack(spacing: 0) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 6) {
-                    ForEach(SettingsTab.allCases) { t in
-                        Button { tab = t } label: {
-                            Label(t.rawValue, systemImage: t.icon)
+            if settings.settingsLayout == "top" {
+                VStack(spacing: 0) {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 6) {
+                            ForEach(SettingsTab.allCases) { t in
+                                Button { tab = t } label: { Label(t.rawValue, systemImage: t.icon) }
+                                    .buttonStyle(TabButtonStyle(selected: tab == t))
+                            }
                         }
-                        .buttonStyle(TabButtonStyle(selected: tab == t))
+                        .padding(.horizontal, 24)
                     }
+                    .padding(.top, 38).padding(.bottom, 14)
+                    content.padding(.horizontal, 24)
                 }
-                .padding(.horizontal, 24)
+            } else {
+                HStack(spacing: 0) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(SettingsTab.allCases) { t in
+                            Button { tab = t } label: {
+                                Label(t.rawValue, systemImage: t.icon).frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                            .buttonStyle(SideTabStyle(selected: tab == t))
+                        }
+                        Spacer()
+                    }
+                    .padding(.horizontal, 14).padding(.top, 48).padding(.bottom, 14)
+                    .frame(width: 206)
+                    .background(Theme.card)
+                    .overlay(alignment: .trailing) { Rectangle().fill(Theme.border).frame(width: 1) }
+                    content.padding(.leading, 26).padding(.trailing, 20).padding(.top, 38)
+                }
             }
-            .padding(.top, 38).padding(.bottom, 14)
+            footer
+        }
+        .background(Theme.background)
+        .preferredColorScheme(.dark)
+        .tint(Theme.accent)
+    }
 
+    @ViewBuilder private var content: some View {
+        if tab == .gallery {
+            GalleryView().padding(.bottom, 12)                  // the gallery scrolls itself
+        } else {
             ScrollView {
                 Group {
                     switch tab {
                     case .upload: UploadView()
-                    case .gallery: GalleryView()
+                    case .gallery: EmptyView()
                     case .effects: EffectsView()
-                    case .stats: StatsView()
                     case .account: AccountView()
                     case .general: GeneralView()
                     case .recordings: RecordingsView()
@@ -53,12 +82,52 @@ struct SettingsView: View {
                     case .domain: DomainView()
                     }
                 }
-                .padding(.horizontal, 24).padding(.bottom, 24)
+                .padding(.bottom, 24)
             }
         }
+    }
+
+    /// Credits and the version, along the bottom of every page.
+    private var footer: some View {
+        HStack(spacing: 6) {
+            Text("Created by").foregroundColor(Theme.muted)
+            Link("Pix/Nico", destination: AppInfo.creatorURL).foregroundColor(Theme.accent)
+            Text("·").foregroundColor(Theme.muted)
+            Link("A Person with a Creative Mind.", destination: AppInfo.friendURL).foregroundColor(Theme.accent)
+            Spacer()
+            Text("v\(AppInfo.version)  ·").foregroundColor(Theme.muted)
+            Button("Check for updates") { Task { await Updater.check(manual: true) } }
+                .buttonStyle(.plain).foregroundColor(Theme.accent)
+        }
+        .font(.system(size: 12))
+        .padding(.horizontal, 22).frame(height: 38)
         .background(Theme.background)
-        .preferredColorScheme(.dark)
-        .tint(Theme.accent)
+        .overlay(alignment: .top) { Rectangle().fill(Theme.border).frame(height: 1) }
+    }
+}
+
+/// A sidebar row (like the Haunt dashboard menu).
+struct SideTabStyle: ButtonStyle {
+    let selected: Bool
+    func makeBody(configuration: Configuration) -> some View {
+        SideRow(configuration: configuration, selected: selected)
+    }
+    private struct SideRow: View {
+        let configuration: Configuration
+        let selected: Bool
+        @State private var hovering = false
+        var body: some View {
+            configuration.label
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(selected ? Theme.accent : (hovering ? Theme.text : Theme.muted))
+                .padding(.horizontal, 12).padding(.vertical, 9)
+                .background(selected ? Theme.accentSoft : Color.white.opacity(hovering ? 0.05 : 0))
+                .overlay(RoundedRectangle(cornerRadius: 12).stroke(selected ? Theme.accent.opacity(0.4) : Color.clear))
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .contentShape(RoundedRectangle(cornerRadius: 12))
+                .scaleEffect(configuration.isPressed ? 0.98 : 1)
+                .onHover { hovering = $0 }
+        }
     }
 }
 
@@ -97,6 +166,8 @@ struct AccountView: View {
                 Button("Open haunt.gg") { NSWorkspace.shared.open(URL(string: "https://haunt.gg")!) }
                     .buttonStyle(PillButtonStyle())
             }
+            Text("Stats").font(.system(size: 17, weight: .semibold)).foregroundColor(Theme.text).padding(.top, 6)
+            StatsView()
         }
     }
 }
@@ -180,6 +251,12 @@ struct GeneralView: View {
 
             Card {
                 Toggle(isOn: $s.launchAtLogin) { row("Launch at login", "Start Poltergeist when you sign in.") }
+                pickerRow("Settings menu", "A sidebar down the left like Haunt's dashboard, or tabs across the top.") {
+                    Picker("", selection: $s.settingsLayout) {
+                        Text("Sidebar").tag("side")
+                        Text("Top tabs").tag("top")
+                    }
+                }
             }.toggleStyle(HauntToggleStyle())
 
             Card {

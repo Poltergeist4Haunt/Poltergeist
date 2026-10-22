@@ -38,7 +38,7 @@ private final class PickView: NSView {
         bounds.fill()
 
         guard let w = owner?.hovered else {
-            label("Click a window to record it  ·  Esc to cancel", at: NSPoint(x: bounds.midX, y: bounds.midY))
+            label(ActionHint.text.isEmpty ? "Click a window to record it  ·  Esc to cancel" : ActionHint.text, at: NSPoint(x: bounds.midX, y: bounds.midY))
             return
         }
         let r = w.frame.offsetBy(dx: -screen.frame.minX, dy: -screen.frame.minY)

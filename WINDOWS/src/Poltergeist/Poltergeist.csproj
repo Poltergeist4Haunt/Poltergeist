@@ -11,7 +11,7 @@
     <LangVersion>latest</LangVersion>
     <AssemblyName>Poltergeist</AssemblyName>
     <RootNamespace>Poltergeist</RootNamespace>
-    <Version>0.1.0</Version>
+    <Version>0.2.0</Version>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>..\..\assets\Poltergeist.ico</ApplicationIcon>
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
@@ -22,6 +22,7 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="NAudio" Version="2.2.1" />
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2739.15" />
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
     <PackageReference Include="SkiaSharp.Views.WPF" Version="2.88.8" />
     <ProjectReference Include="..\Poltergeist.Core\Poltergeist.Core.csproj" />
